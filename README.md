@@ -7,7 +7,8 @@ This project modernises the original single-file proof of concept into a product
 - [Next.js 14](https://nextjs.org/) with the App Router
 - React 18 client components for the interactive game flow
 - Tailwind CSS for styling and design tokens
-- Serverless Route Handler (`app/api/generate/route.ts`) that calls the Gemini Image API with retry logic
+- Serverless Route Handlers (`app/api/**/*`) for gameplay actions
+- [Upstash Redis](https://upstash.com/) for persistent session storage that works on serverless platforms like Vercel
 
 ## Project Layout
 
@@ -21,6 +22,7 @@ This project modernises the original single-file proof of concept into a product
 
 - Node.js 18.17 or newer
 - A Google AI Studio **Gemini 2.5** API key with access to the `gemini-2.5-flash-image-preview` model
+- An Upstash Redis database (free tier is sufficient) to persist host/player session data across serverless requests
 
 ## Local Development
 
@@ -30,11 +32,11 @@ This project modernises the original single-file proof of concept into a product
    npm install
    ```
 
-2. Create a `.env.local` file based on `.env.example` and set your Gemini key:
+2. Create a `.env.local` file based on `.env.example` and set your environment variables:
 
    ```bash
    cp .env.example .env.local
-   # edit .env.local and set GEMINI_API_KEY
+   # edit .env.local and set GEMINI_API_KEY, UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN
    ```
 
 3. Run the dev server:
@@ -57,7 +59,10 @@ npm run lint
 
 1. Push the repository to GitHub (or GitLab/Bitbucket) connected to your Vercel account.
 2. Create a new Vercel project and import the repository.
-3. Set the `GEMINI_API_KEY` environment variable in the **Project Settings → Environment Variables** section for the `Production` (and `Preview`/`Development` if needed) environments.
+3. Set the following environment variables in **Project Settings → Environment Variables** (for Production, Preview, and Development as needed):
+   - `GEMINI_API_KEY`
+   - `UPSTASH_REDIS_REST_URL`
+   - `UPSTASH_REDIS_REST_TOKEN`
 4. Trigger a deployment. Vercel will run `npm install`, `npm run build`, and `npm start` automatically.
 
 Once deployed, the UI runs entirely on Vercel's edge-hosted Next.js application, while sensitive API access remains on the serverless function.
@@ -66,6 +71,7 @@ Once deployed, the UI runs entirely on Vercel's edge-hosted Next.js application,
 
 - The Gemini API currently expects the goal image as Base64-encoded JPEG data. Client uploads are converted before being sent to the serverless route.
 - Route handlers inherit Vercel's body-size limits (approx. 4 MB). Consider resizing very large reference images before upload.
+- Session data is kept in Upstash Redis with a 6-hour TTL. Hosts should re-create a room if they plan to keep a game open longer than that.
 - Errors returned by the Gemini API are surfaced to users so they can adjust their descriptions or verify the API key configuration.
 
 ## Migrating From the Original POC

@@ -1,6 +1,13 @@
+import { Redis } from "@upstash/redis";
 import { randomUUID } from "crypto";
 
 const DEFAULT_API_KEY = "AIzaSyBOW8hq2tpJ-iTuNPtiRpukje3FX-yoC6s";
+const SESSION_KEY_PREFIX = "dx-session:";
+const SESSION_TTL_SECONDS = 60 * 60 * 6; // 6 hours
+
+const hasRedisEnv = Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+const redis = hasRedisEnv ? Redis.fromEnv() : null;
+const memoryStore = hasRedisEnv ? null : new Map<string, InternalSession>();
 
 import { ROLE_ORDER } from "@/types/session";
 import type {
@@ -8,7 +15,6 @@ import type {
   PlayerRoundState,
   PlayerStatus,
   PromptMap,
-  RoleId,
   Session,
   SessionStatus,
 } from "@/types/session";
@@ -17,27 +23,13 @@ interface InternalSession extends Session {
   hostSecret: string;
 }
 
-type SessionStoreState = Map<string, InternalSession>;
-
-const globalSessionStore = globalThis as typeof globalThis & {
-  __SESSION_STORE__?: SessionStoreState;
-};
-
-const ensureStore = (): SessionStoreState => {
-  if (!globalSessionStore.__SESSION_STORE__) {
-    globalSessionStore.__SESSION_STORE__ = new Map<string, InternalSession>();
-  }
-  return globalSessionStore.__SESSION_STORE__;
-};
-
 const createEmptyPrompts = (): PromptMap =>
   ROLE_ORDER.reduce<PromptMap>((acc, role) => {
     acc[role] = null;
     return acc;
   }, {} as PromptMap);
 
-const cloneSession = (session: InternalSession): InternalSession =>
-  JSON.parse(JSON.stringify(session)) as InternalSession;
+const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 const createPlayerState = (status: PlayerStatus = "pending"): PlayerRoundState => ({
   prompts: createEmptyPrompts(),
@@ -62,14 +54,41 @@ const resetPlayerState = (state: PlayerRoundState, status: PlayerStatus) => {
 };
 
 export class SessionStore {
-  private store: SessionStoreState;
-
-  constructor() {
-    this.store = ensureStore();
+  private sessionKey(id: string) {
+    return `${SESSION_KEY_PREFIX}${id}`;
   }
 
-  createSession(hostName: string) {
-    const id = this.generateSessionId();
+  private async load(id: string): Promise<InternalSession | null> {
+    if (redis) {
+      const session = await redis.get<InternalSession>(this.sessionKey(id));
+      if (!session) return null;
+      return clone(session);
+    }
+
+    const session = memoryStore?.get(id) ?? null;
+    return session ? clone(session) : null;
+  }
+
+  private async save(session: InternalSession): Promise<InternalSession> {
+    session.updatedAt = Date.now();
+    if (redis) {
+      await redis.set(this.sessionKey(session.id), session, { ex: SESSION_TTL_SECONDS });
+    } else {
+      memoryStore?.set(session.id, clone(session));
+    }
+    return clone(session);
+  }
+
+  private ensureRound(session: InternalSession, roundIndex: number) {
+    const round = session.rounds[roundIndex];
+    if (!round) {
+      throw new Error(`Round ${roundIndex + 1} not found`);
+    }
+    return round;
+  }
+
+  async createSession(hostName: string) {
+    const id = await this.generateSessionId();
     const hostSecret = randomUUID();
     const now = Date.now();
 
@@ -95,33 +114,17 @@ export class SessionStore {
         updatedAt: now,
       })),
       currentRoundIndex: -1,
-    } as InternalSession;
+    };
 
-    this.store.set(id, session);
-    return cloneSession(session);
+    return this.save(session);
   }
 
-  getSession(id: string) {
-    const session = this.store.get(id);
-    if (!session) return null;
-    return cloneSession(session);
+  async getSession(id: string) {
+    return this.load(id);
   }
 
-  private upsert(session: InternalSession) {
-    session.updatedAt = Date.now();
-    this.store.set(session.id, session);
-  }
-
-  private ensureRound(session: InternalSession, roundIndex: number) {
-    const round = session.rounds[roundIndex];
-    if (!round) {
-      throw new Error(`Round ${roundIndex + 1} not found`);
-    }
-    return round;
-  }
-
-  joinSession(id: string, name: string) {
-    const session = this.store.get(id);
+  async joinSession(id: string, name: string) {
+    const session = await this.load(id);
     if (!session) return null;
     if (session.players.length >= 6) {
       throw new Error("Session is full (maximum 6 players).");
@@ -143,12 +146,12 @@ export class SessionStore {
       round.updatedAt = Date.now();
     });
 
-    this.upsert(session);
-    return { session: cloneSession(session), player };
+    const saved = await this.save(session);
+    return { session: saved, player };
   }
 
-  updateRoundGoalImage(id: string, roundIndex: number, base64: string, mimeType: string) {
-    const session = this.store.get(id);
+  async updateRoundGoalImage(id: string, roundIndex: number, base64: string, mimeType: string) {
+    const session = await this.load(id);
     if (!session) return null;
 
     const round = this.ensureRound(session, roundIndex);
@@ -156,20 +159,18 @@ export class SessionStore {
     round.goalImageMimeType = mimeType;
     round.updatedAt = Date.now();
 
-    this.upsert(session);
-    return cloneSession(session);
+    return this.save(session);
   }
 
-  updateApiKey(id: string, apiKey: string) {
-    const session = this.store.get(id);
+  async updateApiKey(id: string, apiKey: string) {
+    const session = await this.load(id);
     if (!session) return null;
     session.apiKey = apiKey;
-    this.upsert(session);
-    return cloneSession(session);
+    return this.save(session);
   }
 
-  startRound(id: string, roundIndex: number) {
-    const session = this.store.get(id);
+  async startRound(id: string, roundIndex: number) {
+    const session = await this.load(id);
     if (!session) return null;
 
     if (roundIndex < 0 || roundIndex >= session.rounds.length) {
@@ -192,12 +193,11 @@ export class SessionStore {
       round.entries[player.id] = entry;
     });
 
-    this.upsert(session);
-    return cloneSession(session);
+    return this.save(session);
   }
 
-  submitPrompt(id: string, roundIndex: number, playerId: string, prompt: string) {
-    const session = this.store.get(id);
+  async submitPrompt(id: string, roundIndex: number, playerId: string, prompt: string) {
+    const session = await this.load(id);
     if (!session) return null;
 
     const round = this.ensureRound(session, roundIndex);
@@ -236,12 +236,11 @@ export class SessionStore {
     }
 
     round.updatedAt = Date.now();
-    this.upsert(session);
-    return cloneSession(session);
+    return this.save(session);
   }
 
-  setPlayerGenerating(id: string, roundIndex: number, playerId: string) {
-    const session = this.store.get(id);
+  async setPlayerGenerating(id: string, roundIndex: number, playerId: string) {
+    const session = await this.load(id);
     if (!session) return null;
 
     const round = this.ensureRound(session, roundIndex);
@@ -256,17 +255,16 @@ export class SessionStore {
     round.updatedAt = Date.now();
     session.status = "generating";
 
-    this.upsert(session);
-    return cloneSession(session);
+    return this.save(session);
   }
 
-  setPlayerResult(
+  async setPlayerResult(
     id: string,
     roundIndex: number,
     playerId: string,
     result: { finalPrompt: string; image: string },
   ) {
-    const session = this.store.get(id);
+    const session = await this.load(id);
     if (!session) return null;
 
     const round = this.ensureRound(session, roundIndex);
@@ -290,12 +288,11 @@ export class SessionStore {
     }
 
     round.updatedAt = Date.now();
-    this.upsert(session);
-    return cloneSession(session);
+    return this.save(session);
   }
 
-  setPlayerScore(id: string, roundIndex: number, playerId: string, score: number) {
-    const session = this.store.get(id);
+  async setPlayerScore(id: string, roundIndex: number, playerId: string, score: number) {
+    const session = await this.load(id);
     if (!session) return null;
 
     const round = this.ensureRound(session, roundIndex);
@@ -308,12 +305,11 @@ export class SessionStore {
     entry.updatedAt = Date.now();
     round.updatedAt = Date.now();
 
-    this.upsert(session);
-    return cloneSession(session);
+    return this.save(session);
   }
 
-  advanceRound(id: string) {
-    const session = this.store.get(id);
+  async advanceRound(id: string) {
+    const session = await this.load(id);
     if (!session) return null;
 
     if (session.currentRoundIndex < 0) {
@@ -322,8 +318,7 @@ export class SessionStore {
 
     if (session.currentRoundIndex >= session.rounds.length - 1) {
       session.status = "completed";
-      this.upsert(session);
-      return cloneSession(session);
+      return this.save(session);
     }
 
     session.currentRoundIndex += 1;
@@ -338,12 +333,11 @@ export class SessionStore {
     });
 
     session.status = "collecting";
-    this.upsert(session);
-    return cloneSession(session);
+    return this.save(session);
   }
 
-  resetSession(id: string) {
-    const session = this.store.get(id);
+  async resetSession(id: string) {
+    const session = await this.load(id);
     if (!session) return null;
 
     session.status = "waiting";
@@ -363,26 +357,32 @@ export class SessionStore {
       Object.values(round.entries).forEach((entry) => resetPlayerState(entry, "pending"));
     });
 
-    this.upsert(session);
-    return cloneSession(session);
+    return this.save(session);
   }
 
-  validateHost(id: string, hostSecret: string) {
-    const session = this.store.get(id);
+  async validateHost(id: string, hostSecret: string) {
+    const session = await this.load(id);
     if (!session) return false;
     return session.hostSecret === hostSecret;
   }
 
-  private generateSessionId(): string {
+  private async generateSessionId(): Promise<string> {
     const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    let id = "";
-    for (let i = 0; i < 6; i += 1) {
-      id += alphabet[Math.floor(Math.random() * alphabet.length)];
+    while (true) {
+      let id = "";
+      for (let i = 0; i < 6; i += 1) {
+        id += alphabet[Math.floor(Math.random() * alphabet.length)];
+      }
+      let exists = false;
+      if (redis) {
+        exists = Boolean(await redis.exists(this.sessionKey(id)));
+      } else {
+        exists = memoryStore?.has(id) ?? false;
+      }
+      if (!exists) {
+        return id;
+      }
     }
-    if (this.store.has(id)) {
-      return this.generateSessionId();
-    }
-    return id;
   }
 }
 

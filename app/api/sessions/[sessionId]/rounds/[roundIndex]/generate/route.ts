@@ -13,7 +13,7 @@ export async function POST(
   { params }: { params: { sessionId: string; roundIndex: string } },
 ) {
   const hostSecret = request.headers.get(HOST_SECRET_HEADER) ?? "";
-  if (!hostSecret || !sessionStore.validateHost(params.sessionId, hostSecret)) {
+  if (!hostSecret || !(await sessionStore.validateHost(params.sessionId, hostSecret))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -28,7 +28,7 @@ export async function POST(
       return NextResponse.json({ error: "Invalid round index" }, { status: 400 });
     }
 
-    const session = sessionStore.getSession(params.sessionId);
+    const session = await sessionStore.getSession(params.sessionId);
     if (!session) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
@@ -56,7 +56,7 @@ export async function POST(
       return NextResponse.json({ error: "Gemini API key is not configured" }, { status: 400 });
     }
 
-    sessionStore.setPlayerGenerating(params.sessionId, roundIndex, playerId);
+    await sessionStore.setPlayerGenerating(params.sessionId, roundIndex, playerId);
 
     const missingSection = ROLE_ORDER.find((role) => !entry.prompts[role]);
     if (missingSection) {
@@ -78,7 +78,7 @@ export async function POST(
       goalImageMimeType: round.goalImageMimeType,
     });
 
-    const updated = sessionStore.setPlayerResult(params.sessionId, roundIndex, playerId, {
+    const updated = await sessionStore.setPlayerResult(params.sessionId, roundIndex, playerId, {
       finalPrompt,
       image,
     });

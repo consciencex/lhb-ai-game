@@ -13,7 +13,7 @@ export async function POST(
       return NextResponse.json({ error: "playerName is required" }, { status: 400 });
     }
 
-    const joined = sessionStore.joinSession(params.sessionId, playerName.trim());
+    const joined = await sessionStore.joinSession(params.sessionId, playerName.trim());
     if (!joined) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }

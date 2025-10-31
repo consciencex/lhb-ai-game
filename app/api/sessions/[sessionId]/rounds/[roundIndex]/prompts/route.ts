@@ -18,7 +18,7 @@ export async function POST(
       return NextResponse.json({ error: "Invalid round index" }, { status: 400 });
     }
 
-    const updated = sessionStore.submitPrompt(params.sessionId, roundIndex, playerId, prompt.trim());
+    const updated = await sessionStore.submitPrompt(params.sessionId, roundIndex, playerId, prompt.trim());
     if (!updated) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }

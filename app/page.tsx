@@ -868,14 +868,14 @@ function GameApp() {
           {session.players.length === 0 ? (
             <p className="text-sm text-gray-300">ยังไม่มีผู้เล่นเข้าร่วม โปรดแชร์ลิงก์หรือ QR Code ให้เพื่อนๆ</p>
           ) : (
-            <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {session.players.map((player) => {
                 const roundStatuses = session.rounds.map(
                   (round) => round.entries[player.id]?.status ?? "pending",
                 );
                 const currentStatus = currentHostRound?.entries[player.id]?.status ?? "pending";
                 return (
-                  <div key={player.id} className="rounded-xl bg-black/30 p-4">
+                  <div key={player.id} className="flex h-full flex-col rounded-xl bg-black/30 p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <p className="text-base font-semibold text-white">{player.name}</p>
@@ -887,7 +887,7 @@ function GameApp() {
                         เข้าร่วมเมื่อ {new Date(player.joinedAt).toLocaleTimeString()}
                       </span>
                     </div>
-                    <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="mt-3 grid gap-2 text-xs grid-cols-2 xl:grid-cols-4">
                       {session.rounds.map((round, idx) => (
                         <div key={`${player.id}-${round.id}`} className="rounded-lg bg-white/5 p-2 text-center">
                           <p className="font-semibold text-violet-300">รอบ {round.index}</p>
@@ -921,41 +921,63 @@ function GameApp() {
               )}
             </div>
 
-            <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {roundEntries.map(({ player, entry }) => (
-                <div key={`${currentHostRound.id}-${player.id}`} className="rounded-xl bg-white/5 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                <div
+                  key={`${currentHostRound.id}-${player.id}`}
+                  className="flex h-full flex-col rounded-xl bg-white/5 p-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <h4 className="text-base font-semibold text-white">{player.name}</h4>
                       <p className="text-xs text-gray-400">
                         สถานะ: {renderRoundStatusBadge((entry?.status as SessionStatus) ?? "waiting")}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-gray-400">
-                      <span>Progress: {entry ? Math.min(entry.currentRoleIndex, ROLE_ORDER.length) : 0} / {ROLE_ORDER.length}</span>
-                      {entry?.status === "collecting" && (
-                        <span className="text-amber-300">รอ Prompt ส่วนต่อไป</span>
-                      )}
+                    <div className="flex flex-col items-end gap-1 text-[11px] text-gray-400">
+                      <span>
+                        Progress: {entry ? Math.min(entry.currentRoleIndex, ROLE_ORDER.length) : 0} / {ROLE_ORDER.length}
+                      </span>
+                      {entry?.status === "collecting" && <span className="text-amber-300">รอ Prompt ส่วนต่อไป</span>}
                     </div>
                   </div>
 
-                  <div className="mt-3 grid gap-3 md:grid-cols-2">
-                    {ROLE_ORDER.map((roleId) => (
-                      <div key={roleId} className="rounded-lg bg-black/30 p-3 text-xs text-gray-300">
-                        <p className="font-semibold text-violet-300">{ROLE_LABELS[roleId]}</p>
-                        <p className="mt-1 whitespace-pre-wrap text-sm text-gray-200">
-                          {entry?.prompts[roleId] || "ยังไม่มีคำอธิบาย"}
-                        </p>
-                      </div>
-                    ))}
+                  <div className="mt-3 flex-1 overflow-hidden">
+                    <div className="grid gap-2 text-xs text-gray-300">
+                      {ROLE_ORDER.map((roleId) => (
+                        <div key={roleId} className="rounded-lg bg-black/30 p-2">
+                          <p className="font-semibold text-violet-300">{ROLE_LABELS[roleId]}</p>
+                          <p className="mt-1 whitespace-pre-wrap text-sm text-gray-200 max-h-20 overflow-y-auto">
+                            {entry?.prompts[roleId] || "ยังไม่มีคำอธิบาย"}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
 
+                  {entry?.resultImage && (
+                    <div className="mt-3 space-y-2">
+                      <div className="overflow-hidden rounded-lg bg-black/40">
+                        <Image
+                          src={`data:image/png;base64,${entry.resultImage}`}
+                          alt={`${player.name} result`}
+                          width={360}
+                          height={360}
+                          className="h-40 w-full cursor-zoom-in object-cover"
+                          unoptimized
+                          onClick={() => window.open(`data:image/png;base64,${entry.resultImage}`, "_blank")}
+                        />
+                      </div>
+                      <p className="text-xs text-gray-300 whitespace-pre-wrap max-h-20 overflow-y-auto">{entry.finalPrompt}</p>
+                    </div>
+                  )}
+
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
                         onClick={() => handleGenerateForPlayer(currentHostRound.index - 1, player.id)}
-                        className="btn-primary rounded-full px-4 py-2 text-sm font-semibold"
+                        className="btn-primary rounded-full px-3 py-2 text-xs font-semibold"
                         disabled={
                           entry?.status !== "ready" ||
                           generationLoading === `${currentHostRound.index - 1}:${player.id}`
@@ -968,14 +990,14 @@ function GameApp() {
                           : "สร้างภาพ"}
                       </button>
                       {entry?.resultImage && (
-                        <div className="flex items-center gap-2 text-xs text-gray-400">
+                        <div className="flex items-center gap-1 text-[11px] text-gray-400">
                           <span>คะแนน:</span>
                           {[1, 2, 3, 4, 5].map((score) => (
                             <button
                               key={score}
                               type="button"
                               onClick={() => handleAssignScore(currentHostRound.index - 1, player.id, score)}
-                              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                              className={`rounded-full px-2 py-1 text-[11px] font-semibold transition ${
                                 entry.score === score
                                   ? "bg-emerald-500 text-white"
                                   : "bg-white/10 text-gray-200 hover:bg-white/20"
@@ -993,28 +1015,12 @@ function GameApp() {
                       <a
                         href={`data:image/png;base64,${entry.resultImage}`}
                         download={`round-${currentHostRound.index}-${player.name}.png`}
-                        className="btn-secondary rounded-full px-4 py-2 text-sm"
+                        className="btn-secondary rounded-full px-3 py-2 text-xs"
                       >
                         ดาวน์โหลดภาพ
                       </a>
                     )}
                   </div>
-
-                  {entry?.resultImage && (
-                    <div className="mt-4 rounded-lg bg-black/60 p-3">
-                      <Image
-                        src={`data:image/png;base64,${entry.resultImage}`}
-                        alt={`${player.name} result`}
-                        width={512}
-                        height={512}
-                        className="w-full rounded-lg object-contain"
-                        unoptimized
-                      />
-                      <p className="mt-3 text-xs text-gray-300 whitespace-pre-wrap">
-                        {entry.finalPrompt}
-                      </p>
-                    </div>
-                  )}
                 </div>
               ))}
             </div>

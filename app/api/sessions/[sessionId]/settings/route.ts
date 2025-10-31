@@ -10,7 +10,7 @@ export async function PATCH(
   { params }: { params: { sessionId: string } },
 ) {
   const hostSecret = request.headers.get(HOST_SECRET_HEADER) ?? "";
-  if (!hostSecret || !sessionStore.validateHost(params.sessionId, hostSecret)) {
+  if (!hostSecret || !(await sessionStore.validateHost(params.sessionId, hostSecret))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -20,7 +20,7 @@ export async function PATCH(
       return NextResponse.json({ error: "apiKey is required" }, { status: 400 });
     }
 
-    const session = sessionStore.updateApiKey(params.sessionId, apiKey.trim());
+    const session = await sessionStore.updateApiKey(params.sessionId, apiKey.trim());
     if (!session) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }

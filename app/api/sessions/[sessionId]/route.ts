@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: { sessionId: string } },
 ) {
   try {
-    const session = sessionStore.getSession(params.sessionId);
+    const session = await sessionStore.getSession(params.sessionId);
     if (!session) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }

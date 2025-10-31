@@ -10,12 +10,12 @@ export async function POST(
   { params }: { params: { sessionId: string } },
 ) {
   const hostSecret = request.headers.get(HOST_SECRET_HEADER) ?? "";
-  if (!hostSecret || !sessionStore.validateHost(params.sessionId, hostSecret)) {
+  if (!hostSecret || !(await sessionStore.validateHost(params.sessionId, hostSecret))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   try {
-    const session = sessionStore.advanceRound(params.sessionId);
+    const session = await sessionStore.advanceRound(params.sessionId);
     if (!session) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }

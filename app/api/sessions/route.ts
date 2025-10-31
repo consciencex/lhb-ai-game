@@ -10,7 +10,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "hostName is required" }, { status: 400 });
     }
 
-    const session = sessionStore.createSession(hostName.trim());
+    const session = await sessionStore.createSession(hostName.trim());
 
     return NextResponse.json({ session: serializeSession(session), hostSecret: session.hostSecret });
   } catch (error) {

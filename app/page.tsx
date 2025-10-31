@@ -52,8 +52,6 @@ type ScoreRow = {
   total: number;
 };
 
-type SubmitMode = "manual" | "auto";
-
 const getRoundGoalImage = (round: Round) =>
   round.goalImageBase64
     ? `data:${round.goalImageMimeType ?? "image/jpeg"};base64,${round.goalImageBase64}`
@@ -133,6 +131,7 @@ function GameApp() {
   const router = useRouter();
 
   const joinParam = searchParams.get("join")?.toUpperCase() ?? "";
+  const playerParam = searchParams.get("player") ?? "";
 
   const [view, setView] = useState<View>("landing");
 
@@ -163,17 +162,12 @@ function GameApp() {
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState(COUNTDOWN_SECONDS);
   const [timerActive, setTimerActive] = useState(false);
-  const [lastSubmittedMode, setLastSubmittedMode] = useState<SubmitMode | null>(null);
   const playerTimerSignatureRef = useRef<{
     roundIndex: number;
     roleIndex: number;
     status: PlayerStatus;
   } | null>(null);
-  const [imagePreview, setImagePreview] = useState<{
-    src: string;
-    title?: string;
-    prompt?: string;
-  } | null>(null);
+  const [imagePreview, setImagePreview] = useState<{ src: string; title?: string } | null>(null);
 
   // Auto-open join screen when ?join=CODE
   useEffect(() => {
@@ -448,7 +442,7 @@ function GameApp() {
       setPlayerPrompt("");
       setPlayerError(null);
       setView("player");
-      router.replace(`/?join=${code}`);
+      router.replace(`/?join=${code}&player=${player.id}`);
     } catch (error) {
       console.error(error);
       setLandingError(error instanceof Error ? error.message : "เกิดข้อผิดพลาดในการเข้าร่วม");
@@ -653,8 +647,8 @@ function GameApp() {
   const hostScoreboard = useMemo(() => (hostData ? buildScoreboard(hostData.session) : []), [hostData]);
   const playerScoreboard = useMemo(() => (playerData ? buildScoreboard(playerData.session) : []), [playerData]);
 
-  const openImagePreview = (src: string, title?: string, prompt?: string) => {
-    setImagePreview({ src, title, prompt });
+  const openImagePreview = (src: string, title?: string) => {
+    setImagePreview({ src, title });
   };
 
   const closeImagePreview = () => setImagePreview(null);
@@ -709,7 +703,7 @@ function GameApp() {
     playerTimerSignatureRef.current = signature;
 
     if (hasChanged) {
-      setLastSubmittedMode(null);
+      setPlayerError(null);
       setSecondsRemaining(COUNTDOWN_SECONDS);
       setTimerActive(true);
     }
@@ -747,7 +741,6 @@ function GameApp() {
         setPlayerData((prev) => (prev ? { ...prev, session: payload.session } : prev));
         setPlayerPrompt("");
         setSecondsRemaining(COUNTDOWN_SECONDS);
-        setLastSubmittedMode("manual");
       } catch (error) {
         console.error(error);
         setPlayerError(error instanceof Error ? error.message : "เกิดข้อผิดพลาด");
@@ -1083,7 +1076,6 @@ function GameApp() {
                           openImagePreview(
                             `data:image/png;base64,${entry.resultImage}`,
                             `${player.name} – รอบที่ ${currentHostRound.index}`,
-                            entry.finalPrompt ?? "",
                           )
                         }
                       >
@@ -1228,11 +1220,10 @@ function GameApp() {
                             type="button"
                             className="block overflow-hidden rounded-lg bg-black/40"
                             onClick={() =>
-                              openImagePreview(
-                                `data:image/png;base64,${entry?.resultImage ?? ""}`,
-                                `${player.name} – รอบที่ ${round.index}`,
-                                entry?.finalPrompt ?? "",
-                              )
+                          openImagePreview(
+                            `data:image/png;base64,${entry?.resultImage ?? ""}`,
+                            `${player.name} – รอบที่ ${round.index}`,
+                          )
                             }
                           >
                             <Image
@@ -1422,9 +1413,6 @@ function GameApp() {
                   </button>
                 </form>
                 {playerError && <p className="mt-2 text-xs text-red-300">{playerError}</p>}
-                {lastSubmittedMode === "auto" && (
-                  <p className="mt-2 text-xs text-amber-300">ระบบส่งข้อความให้อัตโนมัติเนื่องจากหมดเวลา</p>
-                )}
               </div>
             )}
 
@@ -1468,7 +1456,6 @@ function GameApp() {
                       openImagePreview(
                         `data:image/png;base64,${playerEntry.resultImage}`,
                         `${playerName} – รอบที่ ${currentPlayerRound?.index ?? 0}`,
-                        playerEntry.finalPrompt ?? "",
                       )
                     }
                   >
@@ -1491,7 +1478,6 @@ function GameApp() {
                         openImagePreview(
                           `data:image/png;base64,${playerEntry.resultImage}`,
                           `${playerName} – รอบที่ ${currentPlayerRound?.index ?? 0}`,
-                          playerEntry.finalPrompt ?? "",
                         )
                       }
                     >
@@ -1567,28 +1553,29 @@ function GameApp() {
         {view === "player" && renderPlayerView()}
       </main>
       {imagePreview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-          <div className="relative w-full max-w-5xl space-y-4 rounded-2xl bg-night-900 p-6 shadow-2xl">
-            <button
-              type="button"
-              onClick={closeImagePreview}
-              className="absolute right-4 top-4 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white transition hover:bg-white/20"
-            >
-              ปิด
-            </button>
-            {imagePreview.title && <h3 className="pr-16 text-lg font-semibold text-white">{imagePreview.title}</h3>}
-            <div className="max-h-[70vh] overflow-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4">
+          <button
+            type="button"
+            className="absolute inset-0 h-full w-full cursor-zoom-out"
+            onClick={closeImagePreview}
+            aria-label="ปิดภาพตัวอย่าง"
+          />
+          <div className="relative w-full max-w-5xl rounded-2xl bg-night-900/40 p-4 shadow-2xl">
+            <div className="absolute right-5 top-5 z-10 rounded-full bg-black/60 px-4 py-2 text-xs font-semibold text-white">
+              แตะพื้นหลังเพื่อปิด
+            </div>
+            <div className="flex max-h-[80vh] w-full items-center justify-center overflow-auto rounded-xl bg-black/30 p-2">
               <Image
                 src={imagePreview.src}
                 alt={imagePreview.title ?? "result-preview"}
-                width={1280}
-                height={1280}
-                className="w-full rounded-xl object-contain"
+                width={1400}
+                height={1400}
+                className="max-h-[80vh] w-auto rounded-lg object-contain"
                 unoptimized
               />
             </div>
-            {imagePreview.prompt && (
-              <p className="text-sm text-gray-300 whitespace-pre-wrap">{imagePreview.prompt}</p>
+            {imagePreview.title && (
+              <p className="mt-3 text-center text-sm font-semibold text-white opacity-80">{imagePreview.title}</p>
             )}
           </div>
         </div>

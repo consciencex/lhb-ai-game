@@ -9,6 +9,15 @@ const hasRedisEnv = Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UP
 const redis = hasRedisEnv ? Redis.fromEnv() : null;
 const memoryStore = hasRedisEnv ? null : new Map<string, InternalSession>();
 
+type ImageCache = Map<string, string>;
+
+const globalScope = globalThis as typeof globalThis & {
+  __DX_IMAGE_CACHE__?: ImageCache;
+};
+
+const imageCache: ImageCache = globalScope.__DX_IMAGE_CACHE__ ?? new Map<string, string>();
+globalScope.__DX_IMAGE_CACHE__ = imageCache;
+
 import { ROLE_ORDER } from "@/types/session";
 import type {
   Player,
@@ -58,23 +67,77 @@ export class SessionStore {
     return `${SESSION_KEY_PREFIX}${id}`;
   }
 
+  private imageKey(sessionId: string, roundId: string, playerId: string) {
+    return `${sessionId}:${roundId}:${playerId}`;
+  }
+
+  private cacheResultImage(sessionId: string, roundId: string, playerId: string, image: string | undefined) {
+    const key = this.imageKey(sessionId, roundId, playerId);
+    if (image) {
+      imageCache.set(key, image);
+    } else {
+      imageCache.delete(key);
+    }
+  }
+
+  private retrieveResultImage(sessionId: string, roundId: string, playerId: string) {
+    return imageCache.get(this.imageKey(sessionId, roundId, playerId));
+  }
+
+  private clearSessionImages(sessionId: string) {
+    const prefix = `${sessionId}:`;
+    for (const key of imageCache.keys()) {
+      if (key.startsWith(prefix)) {
+        imageCache.delete(key);
+      }
+    }
+  }
+
   private async load(id: string): Promise<InternalSession | null> {
     if (redis) {
       const session = await redis.get<InternalSession>(this.sessionKey(id));
       if (!session) return null;
-      return clone(session);
+      const hydrated = clone(session);
+      hydrated.rounds.forEach((round) => {
+        Object.entries(round.entries).forEach(([playerId, entry]) => {
+          const cached = this.retrieveResultImage(hydrated.id, round.id, playerId);
+          if (cached) {
+            entry.resultImage = cached;
+          }
+        });
+      });
+      return hydrated;
     }
 
     const session = memoryStore?.get(id) ?? null;
-    return session ? clone(session) : null;
+    if (!session) return null;
+    const hydrated = clone(session);
+    hydrated.rounds.forEach((round) => {
+      Object.entries(round.entries).forEach(([playerId, entry]) => {
+        const cached = this.retrieveResultImage(hydrated.id, round.id, playerId);
+        if (cached) {
+          entry.resultImage = cached;
+        }
+      });
+    });
+    return hydrated;
   }
 
   private async save(session: InternalSession): Promise<InternalSession> {
     session.updatedAt = Date.now();
+    const persistable = clone(session);
+    persistable.rounds.forEach((round) => {
+      Object.entries(round.entries).forEach(([playerId, entry]) => {
+        if (entry.resultImage) {
+          this.cacheResultImage(session.id, round.id, playerId, entry.resultImage);
+        }
+        entry.resultImage = undefined;
+      });
+    });
     if (redis) {
-      await redis.set(this.sessionKey(session.id), session, { ex: SESSION_TTL_SECONDS });
+      await redis.set(this.sessionKey(session.id), persistable, { ex: SESSION_TTL_SECONDS });
     } else {
-      memoryStore?.set(session.id, clone(session));
+      memoryStore?.set(session.id, persistable);
     }
     return clone(session);
   }
@@ -191,6 +254,7 @@ export class SessionStore {
       const entry = round.entries[player.id] ?? createPlayerState();
       resetPlayerState(entry, "collecting");
       round.entries[player.id] = entry;
+      this.cacheResultImage(session.id, round.id, player.id, undefined);
     });
 
     return this.save(session);
@@ -278,6 +342,7 @@ export class SessionStore {
     entry.generatedAt = Date.now();
     entry.status = "completed";
     entry.updatedAt = Date.now();
+    this.cacheResultImage(session.id, round.id, playerId, result.image);
 
     if (Object.values(round.entries).every((item) => item.status === "completed")) {
       round.status = "completed";
@@ -330,6 +395,7 @@ export class SessionStore {
       const entry = round.entries[player.id] ?? createPlayerState();
       resetPlayerState(entry, "collecting");
       round.entries[player.id] = entry;
+      this.cacheResultImage(session.id, round.id, player.id, undefined);
     });
 
     session.status = "collecting";
@@ -356,6 +422,8 @@ export class SessionStore {
       round.updatedAt = Date.now();
       Object.values(round.entries).forEach((entry) => resetPlayerState(entry, "pending"));
     });
+
+    this.clearSessionImages(session.id);
 
     return this.save(session);
   }

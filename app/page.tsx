@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
-import { ChangeEvent, FormEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ROLE_METADATA } from "@/constants/roles";
 import type { SerializedSession } from "@/lib/sessionSerializer";
@@ -164,6 +164,16 @@ function GameApp() {
   const [secondsRemaining, setSecondsRemaining] = useState(COUNTDOWN_SECONDS);
   const [timerActive, setTimerActive] = useState(false);
   const [lastSubmittedMode, setLastSubmittedMode] = useState<SubmitMode | null>(null);
+  const playerTimerSignatureRef = useRef<{
+    roundIndex: number;
+    roleIndex: number;
+    status: PlayerStatus;
+  } | null>(null);
+  const [imagePreview, setImagePreview] = useState<{
+    src: string;
+    title?: string;
+    prompt?: string;
+  } | null>(null);
 
   // Auto-open join screen when ?join=CODE
   useEffect(() => {
@@ -635,6 +645,7 @@ function GameApp() {
       window.sessionStorage.removeItem(HOST_STORAGE_KEY);
       window.sessionStorage.removeItem(PLAYER_STORAGE_KEY);
     }
+  setImagePreview(null);
     router.replace("/");
   };
 
@@ -646,6 +657,12 @@ function GameApp() {
 
   const hostScoreboard = useMemo(() => (hostData ? buildScoreboard(hostData.session) : []), [hostData]);
   const playerScoreboard = useMemo(() => (playerData ? buildScoreboard(playerData.session) : []), [playerData]);
+
+  const openImagePreview = (src: string, title?: string, prompt?: string) => {
+    setImagePreview({ src, title, prompt });
+  };
+
+  const closeImagePreview = () => setImagePreview(null);
 
   const currentHostRoundIndex = hostData?.session.currentRoundIndex ?? -1;
   const currentHostRound =
@@ -677,11 +694,30 @@ function GameApp() {
     if (!playerEntry || playerEntry.status !== "collecting") {
       setTimerActive(false);
       setSecondsRemaining(COUNTDOWN_SECONDS);
+      playerTimerSignatureRef.current = null;
       return;
     }
-    setLastSubmittedMode(null);
-    setSecondsRemaining(COUNTDOWN_SECONDS);
-    setTimerActive(true);
+
+    const signature = {
+      roundIndex: currentPlayerRoundIndex,
+      roleIndex: playerEntry.currentRoleIndex,
+      status: playerEntry.status,
+    };
+
+    const prev = playerTimerSignatureRef.current;
+    const hasChanged =
+      !prev ||
+      prev.roundIndex !== signature.roundIndex ||
+      prev.roleIndex !== signature.roleIndex ||
+      prev.status !== signature.status;
+
+    playerTimerSignatureRef.current = signature;
+
+    if (hasChanged) {
+      setLastSubmittedMode(null);
+      setSecondsRemaining(COUNTDOWN_SECONDS);
+      setTimerActive(true);
+    }
   }, [playerEntry, currentPlayerRoundIndex]);
 
   const handleSubmitPrompt = useCallback(
@@ -1073,17 +1109,26 @@ function GameApp() {
 
                   {entry?.resultImage && (
                     <div className="mt-3 space-y-2">
-                      <div className="overflow-hidden rounded-lg bg-black/40">
+                      <button
+                        type="button"
+                        className="overflow-hidden rounded-lg bg-black/40"
+                        onClick={() =>
+                          openImagePreview(
+                            `data:image/png;base64,${entry.resultImage}`,
+                            `${player.name} – รอบที่ ${currentHostRound.index}`,
+                            entry.finalPrompt ?? "",
+                          )
+                        }
+                      >
                         <Image
                           src={`data:image/png;base64,${entry.resultImage}`}
                           alt={`${player.name} result`}
-                          width={360}
-                          height={360}
-                          className="h-40 w-full cursor-zoom-in object-cover"
+                          width={512}
+                          height={512}
+                          className="h-48 w-full cursor-zoom-in object-cover"
                           unoptimized
-                          onClick={() => window.open(`data:image/png;base64,${entry.resultImage}`, "_blank")}
                         />
-                      </div>
+                      </button>
                       <p className="text-xs text-gray-300 whitespace-pre-wrap max-h-20 overflow-y-auto">{entry.finalPrompt}</p>
                     </div>
                   )}
@@ -1361,18 +1406,47 @@ function GameApp() {
             )}
 
             {playerEntry?.resultImage && (
-              <div className="rounded-xl bg-black/60 p-4">
-                <h4 className="mb-3 text-base font-semibold text-white">ผลงานของคุณ</h4>
-                <Image
-                  src={`data:image/png;base64,${playerEntry.resultImage}`}
-                  alt="ผลลัพธ์"
-                  width={720}
-                  height={720}
-                  className="w-full rounded-lg object-contain"
-                  unoptimized
-                />
-                <p className="mt-3 text-xs text-gray-300 whitespace-pre-wrap">{playerEntry.finalPrompt}</p>
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-300">
+              <div className="rounded-xl bg-black/60 p-4 space-y-3">
+                <div className="flex flex-wrap items-start gap-3">
+                  <button
+                    type="button"
+                    className="h-40 w-40 overflow-hidden rounded-lg bg-black/40"
+                    onClick={() =>
+                      openImagePreview(
+                        `data:image/png;base64,${playerEntry.resultImage}`,
+                        `${playerName} – รอบที่ ${currentPlayerRound?.index ?? 0}`,
+                        playerEntry.finalPrompt ?? "",
+                      )
+                    }
+                  >
+                    <Image
+                      src={`data:image/png;base64,${playerEntry.resultImage}`}
+                      alt="ผลลัพธ์"
+                      width={360}
+                      height={360}
+                      className="h-full w-full cursor-zoom-in object-cover"
+                      unoptimized
+                    />
+                  </button>
+                  <div className="flex-1 space-y-2 text-xs text-gray-300">
+                    <h4 className="text-base font-semibold text-white">ผลงานของคุณ</h4>
+                    <p className="whitespace-pre-wrap text-sm text-gray-200">{playerEntry.finalPrompt}</p>
+                    <button
+                      type="button"
+                      className="btn-secondary rounded-full px-4 py-2 text-xs"
+                      onClick={() =>
+                        openImagePreview(
+                          `data:image/png;base64,${playerEntry.resultImage}`,
+                          `${playerName} – รอบที่ ${currentPlayerRound?.index ?? 0}`,
+                          playerEntry.finalPrompt ?? "",
+                        )
+                      }
+                    >
+                      ขยายดูภาพ
+                    </button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-gray-300">
                   <span>คะแนนที่ได้รับ: {playerEntry.score ?? "รอการประเมิน"}</span>
                   <a
                     href={`data:image/png;base64,${playerEntry.resultImage}`}
@@ -1439,6 +1513,33 @@ function GameApp() {
         {view === "host" && renderHostView()}
         {view === "player" && renderPlayerView()}
       </main>
+      {imagePreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <div className="relative w-full max-w-5xl space-y-4 rounded-2xl bg-night-900 p-6 shadow-2xl">
+            <button
+              type="button"
+              onClick={closeImagePreview}
+              className="absolute right-4 top-4 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white transition hover:bg-white/20"
+            >
+              ปิด
+            </button>
+            {imagePreview.title && <h3 className="pr-16 text-lg font-semibold text-white">{imagePreview.title}</h3>}
+            <div className="max-h-[70vh] overflow-auto">
+              <Image
+                src={imagePreview.src}
+                alt={imagePreview.title ?? "result-preview"}
+                width={1280}
+                height={1280}
+                className="w-full rounded-xl object-contain"
+                unoptimized
+              />
+            </div>
+            {imagePreview.prompt && (
+              <p className="text-sm text-gray-300 whitespace-pre-wrap">{imagePreview.prompt}</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -721,17 +721,15 @@ function GameApp() {
   }, [playerEntry, currentPlayerRoundIndex]);
 
   const handleSubmitPrompt = useCallback(
-    async (mode: SubmitMode = "manual") => {
+    async () => {
       if (!playerData || playerEntry?.status !== "collecting" || currentPlayerRoundIndex < 0) return;
       if (playerPromptSubmitting) return;
 
       const trimmed = playerPrompt.trim();
-      if (mode === "manual" && !trimmed) {
+      if (!trimmed) {
         setPlayerError("กรุณาใส่ prompt ก่อนส่ง");
         return;
       }
-
-      const promptToSend = mode === "auto" ? trimmed || "(หมดเวลา)" : trimmed;
 
       setPlayerPromptSubmitting(true);
       setPlayerError(null);
@@ -742,7 +740,7 @@ function GameApp() {
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ playerId: playerData.playerId, prompt: promptToSend }),
+            body: JSON.stringify({ playerId: playerData.playerId, prompt: trimmed }),
           },
         );
 
@@ -754,7 +752,7 @@ function GameApp() {
         setPlayerData((prev) => (prev ? { ...prev, session: payload.session } : prev));
         setPlayerPrompt("");
         setSecondsRemaining(COUNTDOWN_SECONDS);
-        setLastSubmittedMode(mode);
+        setLastSubmittedMode("manual");
       } catch (error) {
         console.error(error);
         setPlayerError(error instanceof Error ? error.message : "เกิดข้อผิดพลาด");
@@ -774,14 +772,15 @@ function GameApp() {
   useEffect(() => {
     if (!timerActive) return;
     if (secondsRemaining <= 0) {
-      void handleSubmitPrompt("auto");
+      setTimerActive(false);
+      setPlayerError("หมดเวลาแล้ว กรุณากดส่งเพื่อไปส่วนต่อไป");
       return;
     }
     const id = window.setTimeout(() => {
       setSecondsRemaining((prev) => prev - 1);
     }, 1000);
     return () => window.clearTimeout(id);
-  }, [handleSubmitPrompt, secondsRemaining, timerActive]);
+  }, [secondsRemaining, timerActive]);
 
   const renderLandingView = () => (
     <section className="grid gap-6 md:grid-cols-2">
@@ -1374,13 +1373,27 @@ function GameApp() {
                 สถานะเกม: {getStatusLabel(session.status)} (รอบทั้งหมด {MAX_ROUNDS})
               </p>
             </div>
-            <button
-              type="button"
-              onClick={resetToLanding}
-              className="btn-secondary rounded-full px-4 py-2 text-sm"
-            >
-              ออกจากห้อง
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={resetToLanding}
+                className="btn-secondary rounded-full px-4 py-2 text-sm"
+              >
+                ออกจากห้อง
+              </button>
+              <button
+                type="button"
+                className="btn-secondary rounded-full px-4 py-2 text-sm"
+                onClick={() => {
+                  setSecondsRemaining(COUNTDOWN_SECONDS);
+                  setPlayerPrompt("");
+                  playerTimerSignatureRef.current = null;
+                  setTimerActive(true);
+                }}
+              >
+                รีเฟรชตัวจับเวลา
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1419,10 +1432,13 @@ function GameApp() {
                     <li key={item}>• {item}</li>
                   ))}
                 </ul>
-                <form onSubmit={(event) => {
-                  event.preventDefault();
-                  void handleSubmitPrompt("manual");
-                }} className="mt-4 space-y-3">
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void handleSubmitPrompt();
+                  }}
+                  className="mt-4 space-y-3"
+                >
                   <textarea
                     value={playerPrompt}
                     onChange={(event) => setPlayerPrompt(event.target.value)}
@@ -1434,7 +1450,7 @@ function GameApp() {
                     className="btn-primary w-full rounded-full px-4 py-3 text-sm font-semibold"
                     disabled={playerPromptSubmitting}
                   >
-                    {playerPromptSubmitting ? "กำลังส่ง..." : "ส่ง Prompt"}
+                {playerPromptSubmitting ? "กำลังส่ง..." : "ส่ง Prompt"}
                   </button>
                 </form>
                 {playerError && <p className="mt-2 text-xs text-red-300">{playerError}</p>}
@@ -1571,10 +1587,10 @@ function GameApp() {
       <main className="mx-auto w-full max-w-6xl space-y-8">
         <header className="text-center">
           <h1 className="text-4xl font-bold tracking-tight text-white md:text-5xl">
-            DX Game : <span className="text-violet-400">สร้างรูปด้วยกันด้วย AI</span>
+            LISA AI Crazy Image : <span className="text-violet-400">สร้างรูปภาพด้วยกันด้วย AI</span>
           </h1>
           <p className="mt-2 text-lg text-gray-400">
-            โฮสต์เตรียม Goal Image 4 รอบ • ผู้เล่นแต่ละคนพิมพ์ Prompt 5 ส่วนภายใน {COUNTDOWN_SECONDS} วินาทีต่อส่วน • แข่งขันเก็บคะแนน
+            ช่วยกันสร้างภาพแต่ละส่วนตั้งแต่หัวจรดท้า พร้อมท่าทางและสถานที่จากรูปต้นแบบ
           </p>
         </header>
 

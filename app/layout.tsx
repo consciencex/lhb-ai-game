@@ -5,7 +5,7 @@ import "./globals.css";
 const poppins = Poppins({ subsets: ["latin"], weight: ["400", "600", "700"] });
 
 export const metadata: Metadata = {
-  title: "DX Game : สร้างรูปด้วยกันด้วย AI",
+  title: "LISA AI Crazy Image : สร้างรูปด้วยกันด้วย AI",
   description:
     "Collaborative AI image generation game powered by Google Gemini. Four teams, one masterpiece!",
 };

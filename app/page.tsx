@@ -183,6 +183,17 @@ function GameApp() {
         const response = await fetch(`/api/sessions/${hostData.session.id}`, {
           cache: "no-store",
         });
+        if (response.status === 404 || response.status === 403) {
+          if (typeof window !== "undefined") {
+            window.sessionStorage.removeItem(HOST_STORAGE_KEY);
+          }
+          if (active) {
+            setHostData(null);
+            setHostMessages({ error: "ห้องนี้หมดอายุหรือถูกรีเซ็ตแล้ว" });
+            setView("landing");
+          }
+          return;
+        }
         if (!response.ok) return;
         const payload = (await response.json()) as { session: SerializedSession };
         if (active) {
@@ -210,6 +221,17 @@ function GameApp() {
         const response = await fetch(`/api/sessions/${playerData.sessionId}`, {
           cache: "no-store",
         });
+        if (response.status === 404 || response.status === 403) {
+          if (typeof window !== "undefined") {
+            window.sessionStorage.removeItem(PLAYER_STORAGE_KEY);
+          }
+          if (active) {
+            setPlayerData(null);
+            setView("landing");
+            setLandingError("ห้องนี้ถูกปิดหรือหมดอายุแล้ว กรุณาเข้าร่วมใหม่");
+          }
+          return;
+        }
         if (!response.ok) return;
         const payload = (await response.json()) as { session: SerializedSession };
         if (active) {
@@ -1070,14 +1092,14 @@ function GameApp() {
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => handleGenerateForPlayer(currentHostRound.index - 1, player.id)}
+                        onClick={() => handleGenerateForPlayer(currentHostRoundIndex, player.id)}
                         className="btn-primary rounded-full px-3 py-2 text-xs font-semibold"
                         disabled={
                           entry?.status !== "ready" ||
-                          generationLoading === `${currentHostRound.index - 1}:${player.id}`
+                          generationLoading === `${currentHostRoundIndex}:${player.id}`
                         }
                       >
-                        {generationLoading === `${currentHostRound.index - 1}:${player.id}`
+                        {generationLoading === `${currentHostRoundIndex}:${player.id}`
                           ? "กำลังสร้าง..."
                           : entry?.resultImage
                           ? "สร้างใหม่"
@@ -1090,13 +1112,13 @@ function GameApp() {
                             <button
                               key={score}
                               type="button"
-                              onClick={() => handleAssignScore(currentHostRound.index - 1, player.id, score)}
+                              onClick={() => handleAssignScore(currentHostRoundIndex, player.id, score)}
                               className={`rounded-full px-2 py-1 text-[11px] font-semibold transition ${
                                 entry.score === score
                                   ? "bg-emerald-500 text-white"
                                   : "bg-white/10 text-gray-200 hover:bg-white/20"
                               }`}
-                              disabled={scoringLoading === `${currentHostRound.index - 1}:${player.id}`}
+                              disabled={scoringLoading === `${currentHostRoundIndex}:${player.id}`}
                             >
                               {score}
                             </button>

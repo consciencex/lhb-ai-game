@@ -462,11 +462,6 @@ function GameApp() {
     if (!hostData) return;
 
     const trimmed = apiKeyInput.trim();
-    if (!trimmed) {
-      setHostMessages({ error: "กรุณาใส่ API Key ก่อนบันทึก" });
-      return;
-    }
-
     setApiKeySubmitting(true);
     setHostMessages({});
     try {
@@ -946,62 +941,35 @@ function GameApp() {
 
     return (
       <section className="space-y-8">
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="card rounded-2xl p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-semibold text-white">โฮสต์: {session.hostName}</h2>
-                <p className="mt-1 text-sm text-gray-300">แชร์รหัสหรือสแกน QR เพื่อเข้าร่วม</p>
-                <div className="mt-4 space-y-2 text-sm text-gray-200">
-                  <p>
-                    <span className="font-semibold text-violet-300">Room Code:</span> {session.id}
-                  </p>
-                  <div className="break-all text-xs text-gray-400">{hostJoinUrl}</div>
-                  <p>ผู้เล่นเข้าร่วมแล้ว: {session.players.length}/{MAX_PLAYERS}</p>
-                </div>
-              </div>
-              <div className="flex w-full max-w-xs flex-col items-center gap-3 rounded-xl bg-white/90 p-3 text-slate-900">
-                <QRCodeCanvas value={hostJoinUrl || session.id} size={164} bgColor="#ffffff" fgColor="#1a1a2e" includeMargin />
-                <button
-                  type="button"
-                  onClick={handleCopyJoinLink}
-                  className="w-full rounded-full bg-slate-800 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-900"
-                >
-                  คัดลอกลิงก์
-                </button>
-                {copyLinkFeedback && <p className="text-center text-[11px] text-slate-600">{copyLinkFeedback}</p>}
-              </div>
+        <div className="card rounded-2xl p-6">
+          <div className="flex flex-col items-center justify-center gap-4 text-center">
+            <h2 className="text-2xl font-semibold text-white">โฮสต์: {session.hostName}</h2>
+            <p className="text-sm text-gray-300">แชร์รหัสหรือสแกน QR เพื่อเข้าร่วม</p>
+            <div className="flex flex-col items-center gap-2 text-sm text-gray-200">
+              <p>
+                <span className="font-semibold text-violet-300">Room Code:</span> {session.id}
+              </p>
+              <div className="break-all text-xs text-gray-400">{hostJoinUrl}</div>
+              <p>ผู้เล่นเข้าร่วมแล้ว: {session.players.length}/{MAX_PLAYERS}</p>
+            </div>
+            <div className="flex w-full max-w-xs flex-col items-center gap-3 rounded-xl bg-white/90 p-3 text-slate-900">
+              <QRCodeCanvas value={hostJoinUrl || session.id} size={200} bgColor="#ffffff" fgColor="#1a1a2e" includeMargin />
+              <button
+                type="button"
+                onClick={handleCopyJoinLink}
+                className="w-full rounded-full bg-slate-800 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-900"
+              >
+                คัดลอกลิงก์
+              </button>
+              {copyLinkFeedback && <p className="text-center text-[11px] text-slate-600">{copyLinkFeedback}</p>}
             </div>
             <button
               type="button"
               onClick={resetToLanding}
-              className="btn-secondary mt-6 rounded-full px-4 py-2 text-sm"
+              className="btn-secondary rounded-full px-4 py-2 text-sm"
             >
               ออกจากโหมดโฮสต์
             </button>
-          </div>
-
-          <div className="card rounded-2xl p-6 space-y-4">
-            <h3 className="text-lg font-semibold text-white">🔐 API Key</h3>
-            <form onSubmit={handleHostApiKeySave} className="space-y-3">
-              <input
-                type="password"
-                value={apiKeyInput}
-                onChange={(event) => setApiKeyInput(event.target.value)}
-                className="prompt-textarea w-full rounded-lg px-4 py-3 text-base"
-                placeholder={session.hasApiKey ? "เปลี่ยน API Key" : "วาง Google AI Studio API Key"}
-              />
-              <button
-                type="submit"
-                className="btn-primary w-full rounded-lg px-6 py-3 text-sm font-semibold"
-                disabled={apiKeySubmitting}
-              >
-                {apiKeySubmitting ? "กำลังบันทึก..." : session.hasApiKey ? "อัปเดต API Key" : "บันทึก API Key"}
-              </button>
-            </form>
-            <div className="rounded-lg bg-white/5 p-4 text-sm text-gray-300">
-              <p>ต้องตั้งค่า API Key และ Goal Image ครบทั้ง 4 รอบก่อนเริ่มเล่น</p>
-            </div>
           </div>
         </div>
 

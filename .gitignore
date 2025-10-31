@@ -1,0 +1,17 @@
+# Dependencies
+node_modules
+
+# Next.js
+.next
+out
+
+# Environment variables
+.env.local
+.env.production
+.env.development
+
+# Misc
+dist
+pnpm-lock.yaml
+yarn.lock
+

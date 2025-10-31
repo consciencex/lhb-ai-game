@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DX Game : สร้างรูปด้วยกันด้วย AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: #1a1a2e;
+            background-image: radial-gradient(circle at top right, #1e1e3f, #1a1a2e 70%);
+            color: #e0e0e0;
+        }
+        .card {
+            background-color: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+        .card-header {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        .prompt-textarea {
+            background-color: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            resize: none;
+        }
+        .prompt-textarea:focus {
+            outline: none;
+            border-color: #7c3aed;
+            box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.5);
+        }
+        .btn-primary {
+            background-color: #7c3aed;
+            transition: background-color 0.3s ease;
+        }
+        .btn-primary:hover:not(:disabled) {
+            background-color: #6d28d9;
+        }
+        .btn-primary:disabled {
+            background-color: #4c1d95;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        .btn-secondary {
+            background-color: #374151;
+            transition: background-color 0.3s ease;
+        }
+        .btn-secondary:hover {
+            background-color: #4b5563;
+        }
+        .loader {
+            border: 4px solid rgba(255, 255, 255, 0.2);
+            border-left-color: #7c3aed;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+        .progress-bar-bg {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        .progress-bar-fill {
+            background-color: #7c3aed;
+            transition: width 0.5s ease-in-out;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        /* Animation for card transition */
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div id="app" class="w-full max-w-5xl mx-auto">
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <h1 class="text-4xl md:text-5xl font-bold text-white tracking-tight">
+                DX Game : <span class="text-violet-400">สร้างรูปด้วยกันด้วย AI</span>
+            </h1>
+            <p class="mt-2 text-lg text-gray-400">Four teams, one masterpiece. Let the creative chaos begin!</p>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- Start Screen -->
+            <div id="start-screen" class="text-center card p-8 rounded-lg">
+                <h2 class="text-3xl font-bold mb-4">Ready to Create?</h2>
+                <p class="text-gray-300 mb-6">Enter your Google AI Studio API Key. Then, upload a "Goal Image" for the teams to describe, and start the game!</p>
+                
+                <div class="max-w-md mx-auto space-y-4 mb-6">
+                    <input type="password" id="apiKeyInput" class="prompt-textarea w-full p-3 rounded-md text-center" placeholder="Paste Your Google AI Studio API Key Here">
+                    
+                    <div>
+                        <label for="imageUpload" class="btn-secondary font-bold py-2 px-6 rounded-full cursor-pointer inline-block">
+                            📤 Upload Goal Image
+                        </label>
+                        <input type="file" id="imageUpload" class="hidden" accept="image/*">
+                    </div>
+
+                    <div id="image-preview-container" class="hidden mt-4">
+                        <img id="imagePreview" src="#" alt="Goal Image Preview" class="max-w-xs mx-auto rounded-lg shadow-lg">
+                    </div>
+                </div>
+
+                <button id="startGameBtn" class="btn-primary font-bold py-3 px-8 rounded-full text-lg shadow-lg transform hover:scale-105 transition-transform" disabled>
+                    Start the Game
+                </button>
+            </div>
+
+            <!-- Game Section -->
+            <div id="game-section" class="hidden">
+                <!-- Progress -->
+                <div class="mb-6">
+                    <h3 id="progress-text" class="text-center font-semibold text-lg mb-2">Waiting for teams...</h3>
+                    <div class="w-full progress-bar-bg rounded-full h-4">
+                        <div id="progress-bar" class="progress-bar-fill h-4 rounded-full" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <!-- Prompt Input Section -->
+                <div id="prompt-section" class="flex flex-col md:flex-row items-start justify-center gap-6">
+                    <!-- Goal Image Display -->
+                    <div id="goal-image-display" class="w-full md:w-1/3">
+                         <h3 class="text-lg font-bold text-center mb-2">Goal Image</h3>
+                         <img id="goalImage" src="#" alt="Goal Image" class="rounded-lg shadow-xl w-full">
+                    </div>
+                    <!-- Prompt Card -->
+                    <div id="prompt-card-container" class="w-full md:w-2/3">
+                        <!-- This will be populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="text-center mt-8">
+                    <button id="generateBtn" class="hidden btn-primary font-bold py-3 px-8 rounded-full text-lg shadow-lg transform hover:scale-105 transition-transform">
+                        Generate Masterpiece
+                    </button>
+                </div>
+            </div>
+
+            <!-- Result Section -->
+            <div id="result-section" class="hidden text-center card rounded-lg p-6 max-w-4xl mx-auto">
+                <div id="loader" class="hidden mx-auto">
+                    <div class="loader"></div>
+                    <p class="mt-4 text-gray-300">The AI is collaborating... Please wait!</p>
+                </div>
+                <div id="result-content" class="hidden">
+                     <h3 class="text-3xl font-bold mb-4">นี่คือรูปที่เราสร้างด้วยกัน</h3>
+                     <div class="flex flex-col md:flex-row gap-6 justify-center items-start">
+                         <!-- Generated Image -->
+                         <div class="flex-grow">
+                            <div class="bg-black rounded-lg overflow-hidden shadow-2xl mb-2">
+                               <img id="resultImage" src="" alt="Generated AI image" class="w-full h-auto object-contain">
+                            </div>
+                         </div>
+                         <!-- Goal Image (smaller) -->
+                         <div class="w-full md:w-1/3 flex-shrink-0">
+                            <h4 class="text-lg font-semibold mb-2">Goal Image</h4>
+                            <img id="resultGoalImage" src="" alt="Goal Image" class="rounded-lg shadow-lg w-full">
+                         </div>
+                     </div>
+                     <div class="bg-gray-800 p-3 rounded-lg text-left mt-4">
+                         <p class="font-semibold text-violet-300">Final Combined Prompt:</p>
+                         <p id="finalPrompt" class="text-gray-300 text-sm"></p>
+                     </div>
+                     <div class="flex justify-center items-center gap-4 mt-6">
+                         <a id="downloadBtn" href="#" download="dx-ai-game-creation.png" class="btn-primary font-bold py-2 px-6 rounded-full text-md">
+                             Download Image
+                         </a>
+                         <button id="startOverBtn" class="btn-secondary font-bold py-2 px-6 rounded-full text-md">Start Over</button>
+                     </div>
+                </div>
+                 <div id="error-message" class="hidden p-4 bg-red-900/50 text-red-300 rounded-lg">
+                    <p>Oops! Something went wrong. Please check your API key or the console for more details.</p>
+                 </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const TEAMS_DATA = [
+            {
+                name: "Team 1: The Head",
+                icon: "🧠",
+                placeholder: "e.g., Albert Einstein with crazy hair, wearing a pirate hat"
+            },
+            {
+                name: "Team 2: The Body",
+                icon: "👕",
+                placeholder: "e.g., Wearing a shiny medieval knight's armor"
+            },
+            {
+                name: "Team 3: The Legs",
+                icon: "🦵",
+                placeholder: "e.g., That are powerful robotic legs"
+            },
+            {
+                name: "Team 4: The Background",
+                icon: "🏞️",
+                placeholder: "e.g., Standing on the surface of Mars"
+            }
+        ];
+
+        let currentTeamIndex = 0;
+        let prompts = [];
+        let apiKey = '';
+        let goalImageBase64 = null;
+
+        // DOM Elements
+        const startScreen = document.getElementById('start-screen');
+        const startGameBtn = document.getElementById('startGameBtn');
+        const apiKeyInput = document.getElementById('apiKeyInput');
+        const imageUpload = document.getElementById('imageUpload');
+        const imagePreviewContainer = document.getElementById('image-preview-container');
+        const imagePreview = document.getElementById('imagePreview');
+        
+        const gameSection = document.getElementById('game-section');
+        const promptSection = document.getElementById('prompt-section');
+        const promptCardContainer = document.getElementById('prompt-card-container');
+        const goalImageDisplay = document.getElementById('goal-image-display');
+        const goalImage = document.getElementById('goalImage');
+        const progressText = document.getElementById('progress-text');
+        const progressBar = document.getElementById('progress-bar');
+        const generateBtn = document.getElementById('generateBtn');
+        const resultSection = document.getElementById('result-section');
+        const loader = document.getElementById('loader');
+        const resultContent = document.getElementById('result-content');
+        const resultImage = document.getElementById('resultImage');
+        const resultGoalImage = document.getElementById('resultGoalImage');
+        const finalPrompt = document.getElementById('finalPrompt');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const startOverBtn = document.getElementById('startOverBtn');
+        const errorMessage = document.getElementById('error-message');
+
+        // --- Event Listeners ---
+        startGameBtn.addEventListener('click', startGame);
+        generateBtn.addEventListener('click', generateImage);
+        startOverBtn.addEventListener('click', resetGame);
+        apiKeyInput.addEventListener('input', checkStartConditions);
+        imageUpload.addEventListener('change', handleImageUpload);
+
+
+        // --- Functions ---
+
+        function checkStartConditions() {
+            const hasApiKey = apiKeyInput.value.trim() !== '';
+            const hasImage = goalImageBase64 !== null;
+            startGameBtn.disabled = !(hasApiKey && hasImage);
+        }
+
+        function handleImageUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const dataUrl = e.target.result;
+                goalImageBase64 = dataUrl.split(',')[1]; // Get Base64 part
+                imagePreview.src = dataUrl;
+                goalImage.src = dataUrl;
+                resultGoalImage.src = dataUrl;
+                imagePreviewContainer.classList.remove('hidden');
+                checkStartConditions();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function startGame() {
+            apiKey = apiKeyInput.value.trim();
+            if (!apiKey || !goalImageBase64) {
+                const errorP = document.createElement('p');
+                errorP.textContent = "Please provide an API key and upload a goal image.";
+                errorP.className = "text-red-400 mt-4";
+                if(!document.querySelector("#start-screen .text-red-400")) {
+                    startGameBtn.before(errorP);
+                }
+                return;
+            }
+            startScreen.classList.add('hidden');
+            gameSection.classList.remove('hidden');
+            goalImageDisplay.classList.remove('hidden');
+            renderCurrentTurn();
+        }
+
+        function renderCurrentTurn() {
+            const team = TEAMS_DATA[currentTeamIndex];
+            promptCardContainer.innerHTML = `
+                <div class="card rounded-lg shadow-lg overflow-hidden w-full max-w-lg fade-in">
+                    <div class="card-header p-4 flex items-center gap-3">
+                        <span class="text-2xl">${team.icon}</span>
+                        <h2 class="text-xl font-bold">${team.name}</h2>
+                    </div>
+                    <div class="p-4">
+                        <textarea id="prompt-input" class="prompt-textarea w-full h-24 p-2 rounded-md" placeholder="${team.placeholder}"></textarea>
+                        <button id="nextBtn" class="mt-4 w-full btn-primary font-bold py-2 px-6 rounded-lg" disabled>Submit Prompt</button>
+                    </div>
+                </div>
+            `;
+
+            const promptInput = document.getElementById('prompt-input');
+            const nextBtn = document.getElementById('nextBtn');
+
+            promptInput.addEventListener('input', () => {
+                nextBtn.disabled = promptInput.value.trim() === '';
+            });
+            
+            nextBtn.addEventListener('click', handleNextTurn);
+            
+            updateProgress();
+        }
+        
+        function handleNextTurn() {
+            const promptInput = document.getElementById('prompt-input');
+            prompts.push(promptInput.value.trim());
+            currentTeamIndex++;
+
+            if (currentTeamIndex < TEAMS_DATA.length) {
+                renderCurrentTurn();
+            } else {
+                showGenerateScreen();
+            }
+        }
+        
+        function showGenerateScreen() {
+            goalImageDisplay.classList.add('hidden');
+            promptCardContainer.innerHTML = `<div class="text-center card p-8 rounded-lg fade-in w-full max-w-lg">
+                <h2 class="text-3xl font-bold mb-4">All Prompts Collected!</h2>
+                <p class="text-gray-300">Great job, teams! Now for the big reveal. Hit the button below to generate your masterpiece.</p>
+            </div>`;
+            generateBtn.classList.remove('hidden');
+            updateProgress();
+        }
+
+        function updateProgress() {
+            const percentage = (prompts.length / TEAMS_DATA.length) * 100;
+            progressBar.style.width = `${percentage}%`;
+            progressText.textContent = `Teams Ready: ${prompts.length} / ${TEAMS_DATA.length}`;
+        }
+        
+        function resetGame() {
+            currentTeamIndex = 0;
+            prompts = [];
+            apiKey = '';
+            goalImageBase64 = null;
+
+            apiKeyInput.value = '';
+            imageUpload.value = '';
+            imagePreview.src = '#';
+            imagePreviewContainer.classList.add('hidden');
+            
+            resultSection.classList.add('hidden');
+            resultContent.classList.add('hidden');
+            errorMessage.classList.add('hidden');
+            generateBtn.classList.add('hidden');
+            
+            startScreen.classList.remove('hidden');
+            checkStartConditions();
+        }
+
+        async function generateImage() {
+            const [head, body, legs, background] = prompts;
+            // Updated prompt to handle Thai inputs and be more specific about keeping the face.
+            const combinedPrompt = `Create an ultra-realistic, photorealistic, hyper-detailed, full-body portrait of a person.
+**If the following descriptions are in Thai, please interpret their meaning and apply them as visual concepts.**
+**IMPORTANT RULE: You MUST perform a perfect face swap. Take the entire, unaltered face from the provided reference image and place it onto the new person's head. Do NOT change the facial features (eyes, nose, mouth, skin, facial structure) in any way.**
+For the rest of the head, apply this description: '${head}'. This description (e.g., hairstyle, hat, glasses, accessories) should be added AROUND the original face, not replace it.
+The person should have a body wearing '${body}', and legs that are '${legs}'.
+Place this person in the following background: '${background}'.
+The final image must look like a real, high-resolution photograph (8k, cinematic lighting), not a cartoon or illustration.`;
+
+            // Update UI for loading state
+            finalPrompt.textContent = combinedPrompt;
+            gameSection.classList.add('hidden');
+            resultSection.classList.remove('hidden');
+            loader.classList.remove('hidden');
+            resultContent.classList.add('hidden');
+            errorMessage.classList.add('hidden');
+
+            try {
+                if (!apiKey) throw new Error("API Key is missing.");
+
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${apiKey}`;
+
+                const payload = {
+                    contents: [{
+                        parts: [
+                            { text: combinedPrompt },
+                            {
+                                inlineData: {
+                                    mimeType: "image/jpeg",
+                                    data: goalImageBase64
+                                }
+                            }
+                        ]
+                    }],
+                    generationConfig: {
+                        responseModalities: ['IMAGE']
+                    },
+                };
+                
+                let response;
+                let delay = 1000;
+                for (let i = 0; i < 5; i++) {
+                    response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (response.ok) break;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    delay *= 2;
+                }
+
+                if (!response.ok) {
+                    const errorBody = await response.json();
+                    console.error("API Error Body:", errorBody);
+                    throw new Error(`API request failed with status ${response.status}: ${errorBody.error?.message || 'Unknown error'}`);
+                }
+                
+                const result = await response.json();
+                const base64Data = result?.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+                
+                if (base64Data) {
+                    const imageUrl = `data:image/png;base64,${base64Data}`;
+                    resultImage.src = imageUrl;
+                    downloadBtn.href = imageUrl;
+                    
+                    loader.classList.add('hidden');
+                    resultContent.classList.remove('hidden');
+                } else {
+                    console.error("Unexpected API response structure:", result);
+                    throw new Error("No image data received from API.");
+                }
+
+            } catch (error) {
+                console.error("Error generating image:", error);
+                loader.classList.add('hidden');
+                errorMessage.classList.remove('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
+

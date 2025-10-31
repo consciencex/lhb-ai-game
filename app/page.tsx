@@ -24,6 +24,7 @@ const MAX_ROUNDS = 4;
 const COUNTDOWN_SECONDS = 30;
 const POLL_INTERVAL = 2500;
 const HOST_STORAGE_KEY = "dx-ai-host-session";
+const PLAYER_STORAGE_KEY = "dx-ai-player-session";
 
 type View = "landing" | "host" | "player";
 
@@ -201,6 +202,33 @@ function GameApp() {
   }, [hostData?.session.id]);
 
   useEffect(() => {
+    if (!playerData?.sessionId) return;
+
+    let active = true;
+    const fetchSession = async () => {
+      try {
+        const response = await fetch(`/api/sessions/${playerData.sessionId}`, {
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const payload = (await response.json()) as { session: SerializedSession };
+        if (active) {
+          setPlayerData((prev) => (prev ? { ...prev, session: payload.session } : prev));
+        }
+      } catch (error) {
+        console.error("Failed to poll player session", error);
+      }
+    };
+
+    fetchSession();
+    const interval = setInterval(fetchSession, POLL_INTERVAL);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [playerData?.sessionId]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     if (!hostData) return;
     try {
@@ -213,6 +241,21 @@ function GameApp() {
       console.error("Failed to persist host session", error);
     }
   }, [hostData]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!playerData) return;
+    try {
+      const payload = {
+        sessionId: playerData.sessionId,
+        playerId: playerData.playerId,
+        playerName: playerData.playerName,
+      };
+      window.sessionStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify(payload));
+    } catch (error) {
+      console.error("Failed to persist player session", error);
+    }
+  }, [playerData]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -248,6 +291,56 @@ function GameApp() {
       window.sessionStorage.removeItem(HOST_STORAGE_KEY);
     }
   }, [hostData, view]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (playerData || view !== "landing") return;
+
+    const stored = window.sessionStorage.getItem(PLAYER_STORAGE_KEY);
+    if (!stored) return;
+
+    try {
+      const parsed = JSON.parse(stored) as {
+        sessionId: string;
+        playerId: string;
+        playerName?: string;
+      };
+      if (!parsed.sessionId || !parsed.playerId) {
+        window.sessionStorage.removeItem(PLAYER_STORAGE_KEY);
+        return;
+      }
+
+      void (async () => {
+        try {
+          const response = await fetch(`/api/sessions/${parsed.sessionId}`, { cache: "no-store" });
+          if (!response.ok) {
+            window.sessionStorage.removeItem(PLAYER_STORAGE_KEY);
+            return;
+          }
+          const payload = (await response.json()) as { session: SerializedSession };
+          const playerRecord = payload.session.players.find((player) => player.id === parsed.playerId);
+          if (!playerRecord) {
+            window.sessionStorage.removeItem(PLAYER_STORAGE_KEY);
+            return;
+          }
+
+          setPlayerData({
+            session: payload.session,
+            sessionId: parsed.sessionId,
+            playerId: parsed.playerId,
+            playerName: parsed.playerName ?? playerRecord.name,
+          });
+          setView("player");
+        } catch (error) {
+          console.error("Failed to restore player session", error);
+          window.sessionStorage.removeItem(PLAYER_STORAGE_KEY);
+        }
+      })();
+    } catch (error) {
+      console.error("Failed to parse player session storage", error);
+      window.sessionStorage.removeItem(PLAYER_STORAGE_KEY);
+    }
+  }, [playerData, view]);
 
   const handleCreateSession = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -518,6 +611,7 @@ function GameApp() {
     setTimerActive(false);
     if (typeof window !== "undefined") {
       window.sessionStorage.removeItem(HOST_STORAGE_KEY);
+      window.sessionStorage.removeItem(PLAYER_STORAGE_KEY);
     }
     router.replace("/");
   };

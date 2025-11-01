@@ -1230,10 +1230,10 @@ function GameApp() {
                   </div>
 
                   {entry?.resultImage && (
-                    <div className="mt-3 space-y-2">
+                    <div className="mt-3">
                       <button
                         type="button"
-                        className="overflow-hidden rounded-lg bg-black/40"
+                        className="w-full overflow-hidden rounded-lg bg-black/40 aspect-[2/3] min-h-[200px] flex items-center justify-center"
                         onClick={() =>
                           openImagePreview(
                             `data:image/png;base64,${entry.resultImage}`,
@@ -1244,13 +1244,12 @@ function GameApp() {
                         <Image
                           src={`data:image/png;base64,${entry.resultImage}`}
                           alt={`${player.name} result`}
-                          width={512}
-                          height={512}
-                          className="h-48 w-full cursor-zoom-in object-cover"
+                          width={400}
+                          height={600}
+                          className="w-full h-full cursor-zoom-in object-contain"
                           unoptimized
                         />
                       </button>
-                      <p className="text-xs text-gray-300 whitespace-pre-wrap max-h-20 overflow-y-auto">{entry.finalPrompt}</p>
                     </div>
                   )}
 
@@ -1367,20 +1366,20 @@ function GameApp() {
                       <h4 className="text-base font-semibold text-violet-200">รอบที่ {round.index}</h4>
                       <span className="text-xs text-gray-400">{getStatusLabel(round.status)}</span>
                     </div>
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="grid gap-4 grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
                       {entriesWithImages.map(({ player, entry }) => (
-                        <div key={`${round.id}-${player.id}`} className="space-y-3 rounded-xl bg-white/5 p-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-semibold text-white">{player.name}</span>
+                        <div key={`${round.id}-${player.id}`} className="flex flex-col rounded-xl bg-white/5 p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-semibold text-white truncate">{player.name}</span>
                             {entry?.score != null && (
-                              <span className="rounded-full bg-emerald-500/20 px-2 py-1 text-xs text-emerald-200">
-                                คะแนน {entry.score}
+                              <span className="rounded-full bg-emerald-500/20 px-2 py-1 text-[10px] text-emerald-200 whitespace-nowrap">
+                                {entry.score}
                               </span>
                             )}
                           </div>
                           <button
                             type="button"
-                            className="block overflow-hidden rounded-lg bg-black/40"
+                            className="flex-1 flex items-center justify-center overflow-hidden rounded-lg bg-black/40 aspect-[2/3] min-h-[200px]"
                             onClick={() =>
                           openImagePreview(
                             `data:image/png;base64,${entry?.resultImage ?? ""}`,
@@ -1391,15 +1390,12 @@ function GameApp() {
                             <Image
                               src={`data:image/png;base64,${entry?.resultImage ?? ""}`}
                               alt={`${player.name} รอบที่ ${round.index}`}
-                              width={640}
-                              height={640}
-                              className="h-48 w-full cursor-zoom-in object-cover"
+                              width={400}
+                              height={600}
+                              className="w-full h-full cursor-zoom-in object-contain"
                               unoptimized
                             />
                           </button>
-                          <p className="text-xs text-gray-300 whitespace-pre-wrap max-h-24 overflow-y-auto">
-                            {entry?.finalPrompt}
-                          </p>
                         </div>
                       ))}
                     </div>
@@ -1591,10 +1587,11 @@ function GameApp() {
 
             {playerEntry?.resultImage && (
               <div className="rounded-xl bg-black/60 p-4 space-y-3">
-                <div className="flex flex-wrap items-start gap-3">
+                <div className="flex flex-col items-center">
+                  <h4 className="text-base font-semibold text-white mb-3">ผลงานของคุณ</h4>
                   <button
                     type="button"
-                    className="h-40 w-40 overflow-hidden rounded-lg bg-black/40"
+                    className="w-full max-w-xs overflow-hidden rounded-lg bg-black/40 aspect-[2/3] min-h-[300px] flex items-center justify-center"
                     onClick={() =>
                       openImagePreview(
                         `data:image/png;base64,${playerEntry.resultImage}`,
@@ -1605,28 +1602,12 @@ function GameApp() {
                     <Image
                       src={`data:image/png;base64,${playerEntry.resultImage}`}
                       alt="ผลลัพธ์"
-                      width={360}
-                      height={360}
-                      className="h-full w-full cursor-zoom-in object-cover"
+                      width={400}
+                      height={600}
+                      className="w-full h-full cursor-zoom-in object-contain"
                       unoptimized
                     />
                   </button>
-                  <div className="flex-1 space-y-2 text-xs text-gray-300">
-                    <h4 className="text-base font-semibold text-white">ผลงานของคุณ</h4>
-                    <p className="whitespace-pre-wrap text-sm text-gray-200">{playerEntry.finalPrompt}</p>
-                    <button
-                      type="button"
-                      className="btn-secondary rounded-full px-4 py-2 text-xs"
-                      onClick={() =>
-                        openImagePreview(
-                          `data:image/png;base64,${playerEntry.resultImage}`,
-                          `${playerName} – รอบที่ ${currentPlayerRound?.index ?? 0}`,
-                        )
-                      }
-                    >
-                      ขยายดูภาพ
-                    </button>
-                  </div>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-gray-300">
                   <span>คะแนนที่ได้รับ: {playerEntry.score ?? "รอการประเมิน"}</span>

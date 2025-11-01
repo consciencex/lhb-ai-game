@@ -13,10 +13,10 @@ This project modernises the original single-file proof of concept into a product
 ## Project Layout
 
 - `app/page.tsx` – client UI for the game flow (start screen, prompts, results)
-- `app/api/generate/route.ts` – secure serverless proxy to the Gemini API
+- `app/api/sessions/**` – serverless API routes for session management, player actions, and image generation
 - `app/layout.tsx` & `app/globals.css` – shared layout, fonts, and global styles
 - `tailwind.config.ts` & `postcss.config.mjs` – Tailwind configuration
-- `.env.example` – environment variable template
+- `lib/**` – core utilities for session management, image processing, and Gemini API integration
 
 ## Prerequisites
 

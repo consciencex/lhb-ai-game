@@ -3,8 +3,6 @@ import { NextRequest } from "next/server";
 import { sessionStore } from "@/lib/sessionStore";
 import { serializeSession } from "@/lib/sessionSerializer";
 
-const SSE_RETRY_INTERVAL = 3000;
-
 export async function GET(
   request: NextRequest,
   { params }: { params: { sessionId: string } },

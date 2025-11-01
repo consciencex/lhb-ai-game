@@ -129,7 +129,6 @@ function GameApp() {
   const router = useRouter();
 
   const joinParam = searchParams.get("join")?.toUpperCase() ?? "";
-  const playerParam = searchParams.get("player") ?? "";
 
   const [view, setView] = useState<View>("landing");
 

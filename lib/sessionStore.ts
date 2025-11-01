@@ -140,6 +140,8 @@ export class SessionStore {
     } as Player;
 
     session.players.push(player);
+    // Force update timestamp immediately for faster SSE detection
+    session.updatedAt = Date.now();
 
     session.rounds.forEach((round) => {
       round.entries[player.id] = createPlayerState(round.status === "collecting" ? "collecting" : "pending");
@@ -222,6 +224,9 @@ export class SessionStore {
     entry.prompts[roleId] = prompt;
     entry.currentRoleIndex += 1;
     entry.updatedAt = Date.now();
+    
+    // Force update session timestamp immediately for faster SSE detection
+    session.updatedAt = Date.now();
 
     if (entry.currentRoleIndex >= ROLE_ORDER.length) {
       entry.status = "ready";

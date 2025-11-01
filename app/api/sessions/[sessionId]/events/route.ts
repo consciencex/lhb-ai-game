@@ -14,12 +14,12 @@ export async function GET(
   const playerId = searchParams.get("playerId");
   const hostSecret = searchParams.get("hostSecret") || request.headers.get("x-session-host-secret");
 
-  let lastUpdated = Date.now();
-
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
       let isActive = true;
+      let lastUpdated = Date.now();
+      let lastPlayerCount = -1;
 
       const sendEvent = (data: object) => {
         if (!isActive) return;
@@ -68,9 +68,14 @@ export async function GET(
             return;
           }
 
-          // Only send update if session changed
-          if (session.updatedAt > lastUpdated) {
+          // Check for player count changes (instant detection for player join/leave)
+          const currentPlayerCount = session.players.length;
+          const playerCountChanged = lastPlayerCount !== -1 && currentPlayerCount !== lastPlayerCount;
+          
+          // Send update if session changed or player count changed
+          if (playerCountChanged || session.updatedAt > lastUpdated) {
             lastUpdated = session.updatedAt;
+            lastPlayerCount = currentPlayerCount;
             sendEvent({
               type: "session_update",
               session: serializeSession(session),
@@ -82,15 +87,19 @@ export async function GET(
         }
       };
 
-      // Initial session send
+      // Initial session send - set initial player count
+      const initialSession = await sessionStore.getSession(sessionId);
+      if (initialSession) {
+        lastPlayerCount = initialSession.players.length;
+      }
       await checkSession();
 
-      // Poll every 500ms for changes
+      // Poll every 20ms for changes (ultra fast updates)
       const interval = setInterval(() => {
         if (isActive) {
           void checkSession();
         }
-      }, 500);
+      }, 20);
 
       // Heartbeat every 30s
       const heartbeatInterval = setInterval(() => {

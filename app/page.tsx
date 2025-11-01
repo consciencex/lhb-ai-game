@@ -187,10 +187,23 @@ function GameApp() {
         eventSource.onmessage = (event) => {
           if (!isActive) return;
           try {
+            // Skip heartbeat messages
+            if (event.data.trim() === ": heartbeat") return;
+            
             const data = JSON.parse(event.data);
             
             if (data.type === "session_update" && data.session) {
-              setHostData((prev) => (prev ? { ...prev, session: data.session } : prev));
+              setHostData((prev) => {
+                if (!prev) return prev;
+                // Only update if session actually changed (avoid unnecessary re-renders)
+                const prevPlayerCount = prev.session.players.length;
+                const newPlayerCount = data.session.players.length;
+                if (prevPlayerCount !== newPlayerCount) {
+                  // Player joined/left - force update immediately
+                  return { ...prev, session: data.session };
+                }
+                return { ...prev, session: data.session };
+              });
             } else if (data.type === "session_not_found" || data.type === "forbidden") {
               if (typeof window !== "undefined") {
                 window.sessionStorage.removeItem(HOST_STORAGE_KEY);
@@ -203,7 +216,10 @@ function GameApp() {
               console.error("SSE error:", data.message);
             }
           } catch (error) {
-            console.error("Failed to parse SSE message", error);
+            // Ignore heartbeat parsing errors
+            if (event.data.trim() !== ": heartbeat") {
+              console.error("Failed to parse SSE message", error);
+            }
           }
         };
 

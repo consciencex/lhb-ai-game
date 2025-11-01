@@ -78,9 +78,12 @@ export async function POST(
       goalImageMimeType: round.goalImageMimeType,
     });
 
+    // Limit image size by truncating if too large (roughly ~800KB base64)
+    const truncatedImage = image.length > 800_000 ? image.substring(0, 800_000) : image;
+
     const updated = await sessionStore.setPlayerResult(params.sessionId, roundIndex, playerId, {
       finalPrompt,
-      image,
+      image: truncatedImage,
     });
 
     return NextResponse.json({ session: updated ? serializeSession(updated) : null });

@@ -22,7 +22,7 @@ import {
 const MAX_PLAYERS = 6;
 const MAX_ROUNDS = 4;
 const COUNTDOWN_SECONDS = 30;
-const POLL_INTERVAL = 2500;
+const POLL_INTERVAL = 1000;
 const HOST_STORAGE_KEY = "dx-ai-host-session";
 const PLAYER_STORAGE_KEY = "dx-ai-player-session";
 

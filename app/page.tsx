@@ -193,15 +193,9 @@ function GameApp() {
             const data = JSON.parse(event.data);
             
             if (data.type === "session_update" && data.session) {
+              // Host always needs latest session data
               setHostData((prev) => {
-                if (!prev) return prev;
-                // Only update if session actually changed (avoid unnecessary re-renders)
-                const prevPlayerCount = prev.session.players.length;
-                const newPlayerCount = data.session.players.length;
-                if (prevPlayerCount !== newPlayerCount) {
-                  // Player joined/left - force update immediately
-                  return { ...prev, session: data.session };
-                }
+                if (!prev || prev.session.id !== data.session.id) return prev;
                 return { ...prev, session: data.session };
               });
             } else if (data.type === "session_not_found" || data.type === "forbidden") {
@@ -274,10 +268,55 @@ function GameApp() {
         eventSource.onmessage = (event) => {
           if (!isActive) return;
           try {
+            // Skip heartbeat messages
+            if (event.data.trim() === ": heartbeat") return;
+            
             const data = JSON.parse(event.data);
             
             if (data.type === "session_update" && data.session) {
-              setPlayerData((prev) => (prev ? { ...prev, session: data.session } : prev));
+              setPlayerData((prev) => {
+                if (!prev) return prev;
+                const updatedSession = data.session;
+                const currentPlayerId = prev.playerId;
+                
+                // Check if our player still exists in the session
+                const playerExists = updatedSession.players.some((p: { id: string }) => p.id === currentPlayerId);
+                if (!playerExists) {
+                  console.warn("Player not found in session update, keeping previous state");
+                  return prev;
+                }
+                
+                // Get current round
+                const roundIndex = updatedSession.currentRoundIndex;
+                if (roundIndex < 0 || roundIndex >= updatedSession.rounds.length) {
+                  console.warn("Invalid round index in SSE update");
+                  return prev;
+                }
+                
+                const round = updatedSession.rounds[roundIndex];
+                const entry = round?.entries[currentPlayerId];
+                
+                if (!entry) {
+                  console.warn("Player entry not found in current round");
+                  return prev;
+                }
+                
+                // Debug: Log to verify state is correct
+                if (entry.currentRoleIndex !== prev.session.rounds[roundIndex]?.entries[currentPlayerId]?.currentRoleIndex) {
+                  console.log("SSE update - Role changed:", {
+                    oldIndex: prev.session.rounds[roundIndex]?.entries[currentPlayerId]?.currentRoleIndex,
+                    newIndex: entry.currentRoleIndex,
+                    oldRole: prev.session.rounds[roundIndex]?.entries[currentPlayerId] 
+                      ? ROLE_ORDER[prev.session.rounds[roundIndex].entries[currentPlayerId].currentRoleIndex]
+                      : null,
+                    newRole: ROLE_ORDER[entry.currentRoleIndex],
+                    prompts: entry.prompts,
+                  });
+                }
+                
+                // Update session
+                return { ...prev, session: updatedSession };
+              });
             } else if (data.type === "session_not_found" || data.type === "forbidden") {
               if (typeof window !== "undefined") {
                 window.sessionStorage.removeItem(PLAYER_STORAGE_KEY);
@@ -814,29 +853,10 @@ function GameApp() {
       setPlayerPromptSubmitting(true);
       setPlayerError(null);
 
-      // Optimistic update: immediately clear prompt and update local state
+      // Clear prompt immediately for better UX
       const currentPrompt = trimmed;
       const currentRoleIndex = playerEntry.currentRoleIndex;
-      const roleId = ROLE_ORDER[currentRoleIndex];
-      
       setPlayerPrompt("");
-      
-      // Optimistically update session state
-      setPlayerData((prev) => {
-        if (!prev) return prev;
-        const updated = { ...prev };
-        const round = updated.session.rounds[currentPlayerRoundIndex];
-        if (round && round.entries[prev.playerId]) {
-          const entry = { ...round.entries[prev.playerId] };
-          entry.prompts = { ...entry.prompts, [roleId!]: currentPrompt };
-          entry.currentRoleIndex = currentRoleIndex + 1;
-          if (entry.currentRoleIndex >= ROLE_ORDER.length) {
-            entry.status = "ready";
-          }
-          round.entries = { ...round.entries, [prev.playerId]: entry };
-        }
-        return updated;
-      });
 
       try {
         const response = await fetch(
@@ -850,13 +870,37 @@ function GameApp() {
 
         const payload = await response.json();
         if (!response.ok) {
-          // Revert optimistic update on error
+          // Restore prompt on error
           setPlayerPrompt(currentPrompt);
           throw new Error(payload.error ?? "ส่ง prompt ไม่สำเร็จ");
         }
 
-        // Server will send correct state via SSE
-        setPlayerData((prev) => (prev ? { ...prev, session: payload.session } : prev));
+        // Update with server response - ensure we only update our own player data
+        setPlayerData((prev) => {
+          if (!prev || prev.playerId !== playerData.playerId) return prev;
+          const updatedSession = payload.session;
+          const round = updatedSession.rounds[currentPlayerRoundIndex];
+          if (!round) {
+            console.warn("Round not found in server response");
+            return prev;
+          }
+          const entry = round.entries[prev.playerId];
+          if (!entry) {
+            console.warn("Player entry not found in server response");
+            return prev;
+          }
+          
+          // Debug: Log the state to verify correctness
+          console.log("Prompt submitted successfully:", {
+            submittedForRole: ROLE_ORDER[currentRoleIndex],
+            newCurrentRoleIndex: entry.currentRoleIndex,
+            newCurrentRole: ROLE_ORDER[entry.currentRoleIndex],
+            prompts: entry.prompts,
+          });
+          
+          // Update session with server response
+          return { ...prev, session: updatedSession };
+        });
       } catch (error) {
         console.error(error);
         setPlayerError(error instanceof Error ? error.message : "เกิดข้อผิดพลาด");

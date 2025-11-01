@@ -203,7 +203,10 @@ export class SessionStore {
     if (!session) return null;
 
     const round = this.ensureRound(session, roundIndex);
-    if (round.status !== "collecting" && round.status !== "ready") {
+    
+    // Allow prompt submission if round is collecting, ready, or generating
+    // (players should be able to submit even if some players are generating)
+    if (round.status !== "collecting" && round.status !== "ready" && round.status !== "generating") {
       throw new Error("Round is not collecting prompts at the moment.");
     }
 
@@ -212,6 +215,7 @@ export class SessionStore {
       throw new Error("Player not found in this round");
     }
 
+    // Allow submission if entry is still collecting (regardless of round status)
     if (entry.status !== "collecting") {
       throw new Error("Player is not currently entering prompts.");
     }
@@ -234,7 +238,8 @@ export class SessionStore {
     
     // Force update session timestamp immediately for faster SSE detection
     // Use a fresh timestamp to ensure it's always newer
-    const now = Date.now();
+    // Add small delay to ensure timestamp is unique and always greater
+    const now = Date.now() + 1; // Add 1ms to ensure it's always newer than any previous timestamp
     session.updatedAt = now;
     round.updatedAt = now;
 
@@ -242,12 +247,24 @@ export class SessionStore {
       entry.status = "ready";
     }
 
+    // Update round status based on all entries
+    // If all entries are ready/completed, set to ready
+    // Otherwise, set to collecting (even if some are generating, others can still submit)
     if (Object.values(round.entries).every((item) => item.status === "ready" || item.status === "completed")) {
       round.status = "ready";
       session.status = "ready";
     } else {
-      round.status = "collecting";
-      session.status = "collecting";
+      // If round was generating but some players are still collecting, allow collecting again
+      // Only change from generating to collecting if there are players still collecting
+      const hasCollectingPlayers = Object.values(round.entries).some((item) => item.status === "collecting");
+      if (hasCollectingPlayers && round.status === "generating") {
+        round.status = "collecting";
+        session.status = "collecting";
+      } else if (round.status !== "generating") {
+        // Only update to collecting if not generating (preserve generating state if some players are generating)
+        round.status = "collecting";
+        session.status = "collecting";
+      }
     }
 
     // Save with explicit timestamp to ensure Redis gets the update
@@ -274,9 +291,31 @@ export class SessionStore {
 
     entry.status = "generating";
     entry.updatedAt = Date.now();
-    round.status = "generating";
+    
+    // Only set round status to generating if ALL players are ready/completed/generating
+    // Don't change round status if there are still players collecting prompts
+    const hasCollectingPlayers = Object.values(round.entries).some((item) => item.status === "collecting");
+    if (!hasCollectingPlayers) {
+      // All players are ready/generating/completed, so round can be generating or ready
+      const allReadyOrGenerating = Object.values(round.entries).every(
+        (item) => item.status === "ready" || item.status === "generating" || item.status === "completed"
+      );
+      if (allReadyOrGenerating) {
+        // Set to generating if any are generating, otherwise keep as ready
+        const hasGeneratingPlayers = Object.values(round.entries).some((item) => item.status === "generating");
+        if (hasGeneratingPlayers) {
+          round.status = "generating";
+          session.status = "generating";
+        } else {
+          round.status = "ready";
+          session.status = "ready";
+        }
+      }
+    }
+    // If there are still collecting players, keep round status as "collecting" to allow submissions
+    
     round.updatedAt = Date.now();
-    session.status = "generating";
+    session.updatedAt = Date.now();
 
     return this.save(session);
   }

@@ -44,7 +44,8 @@ export async function POST(
       return NextResponse.json({ error: "Player entry not found" }, { status: 404 });
     }
 
-    if (entry.status !== "ready" && entry.status !== "completed") {
+    // Allow generation if entry is ready, completed, or collecting (even if not all prompts are filled)
+    if (entry.status !== "ready" && entry.status !== "completed" && entry.status !== "collecting") {
       return NextResponse.json({ error: "Player prompts not ready" }, { status: 400 });
     }
 
@@ -59,11 +60,8 @@ export async function POST(
 
     await sessionStore.setPlayerGenerating(params.sessionId, roundIndex, playerId);
 
-    const missingSection = ROLE_ORDER.find((role) => !entry.prompts[role]);
-    if (missingSection) {
-      throw new Error(`Prompt section "${missingSection}" is missing.`);
-    }
-
+    // Allow generation even if some prompts are missing - use empty strings for missing prompts
+    // This allows host to generate images even when players haven't completed all 5 prompts
     const finalPrompt = buildFiveStagePrompt({
       head: entry.prompts.head ?? "",
       torso: entry.prompts.torso ?? "",

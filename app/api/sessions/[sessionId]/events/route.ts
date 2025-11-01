@@ -18,6 +18,7 @@ export async function GET(
       let isActive = true;
       let lastUpdated = Date.now();
       let lastPlayerCount = -1;
+      let lastPromptHashes: Record<string, string> = {};
 
       const sendEvent = (data: object) => {
         if (!isActive) return;
@@ -36,6 +37,27 @@ export async function GET(
         } catch (error) {
           console.error("Failed to send heartbeat", error);
         }
+      };
+
+      // Create a hash of all prompts for all rounds to detect changes
+      const hashPrompts = (session: any): Record<string, string> => {
+        const hashes: Record<string, string> = {};
+        session.rounds?.forEach((round: any, roundIndex: number) => {
+          const roundKey = `${roundIndex}`;
+          const prompts: string[] = [];
+          Object.values(round.entries || {}).forEach((entry: any) => {
+            if (entry.prompts) {
+              Object.entries(entry.prompts).forEach(([role, prompt]: [string, any]) => {
+                if (prompt) prompts.push(`${role}:${prompt}`);
+              });
+              // Also include status and currentRoleIndex for faster detection
+              prompts.push(`status:${entry.status || ''}`);
+              prompts.push(`roleIndex:${entry.currentRoleIndex || 0}`);
+            }
+          });
+          hashes[roundKey] = prompts.join('|');
+        });
+        return hashes;
       };
 
       const checkSession = async () => {
@@ -70,11 +92,15 @@ export async function GET(
           const currentPlayerCount = session.players.length;
           const playerCountChanged = lastPlayerCount !== -1 && currentPlayerCount !== lastPlayerCount;
           
-          // Simple: check if session was updated (by timestamp)
-          // Only send update if session changed or player count changed
-          if (playerCountChanged || session.updatedAt > lastUpdated) {
+          // Check for prompt changes by comparing hashes
+          const currentPromptHashes = hashPrompts(session);
+          const promptChanged = JSON.stringify(currentPromptHashes) !== JSON.stringify(lastPromptHashes);
+          
+          // Send update if session changed, player count changed, or prompts changed
+          if (playerCountChanged || session.updatedAt > lastUpdated || promptChanged) {
             lastUpdated = session.updatedAt;
             lastPlayerCount = currentPlayerCount;
+            lastPromptHashes = currentPromptHashes;
             sendEvent({
               type: "session_update",
               session: serializeSession(session),
@@ -86,20 +112,21 @@ export async function GET(
         }
       };
 
-      // Initial session send - set initial player count
+      // Initial session send - set initial player count and prompt hashes
       const initialSession = await sessionStore.getSession(sessionId);
       if (initialSession) {
         lastPlayerCount = initialSession.players.length;
         lastUpdated = initialSession.updatedAt;
+        lastPromptHashes = hashPrompts(initialSession);
       }
       await checkSession();
 
-      // Poll every 100ms for changes (balanced: fast enough but not too frequent)
+      // Poll every 50ms for faster detection (reduced from 100ms)
       const interval = setInterval(() => {
         if (isActive) {
           void checkSession();
         }
-      }, 100);
+      }, 50);
 
       // Heartbeat every 30s
       const heartbeatInterval = setInterval(() => {

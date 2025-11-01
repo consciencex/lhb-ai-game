@@ -226,7 +226,10 @@ export class SessionStore {
     entry.updatedAt = Date.now();
     
     // Force update session timestamp immediately for faster SSE detection
-    session.updatedAt = Date.now();
+    // Use a fresh timestamp to ensure it's always newer
+    const now = Date.now();
+    session.updatedAt = now;
+    round.updatedAt = now;
 
     if (entry.currentRoleIndex >= ROLE_ORDER.length) {
       entry.status = "ready";
@@ -240,8 +243,16 @@ export class SessionStore {
       session.status = "collecting";
     }
 
-    round.updatedAt = Date.now();
-    return this.save(session);
+    // Save with explicit timestamp to ensure Redis gets the update
+    const saved = await this.save(session);
+    // Verify timestamp is newer (force update if needed)
+    if (saved.updatedAt < now) {
+      saved.updatedAt = now;
+      if (redis) {
+        await redis.set(this.sessionKey(saved.id), saved, { ex: SESSION_TTL_SECONDS });
+      }
+    }
+    return saved;
   }
 
   async setPlayerGenerating(id: string, roundIndex: number, playerId: string) {

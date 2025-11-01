@@ -20,6 +20,8 @@ export async function GET(
       let isActive = true;
       let lastUpdated = Date.now();
       let lastPlayerCount = -1;
+      // Track prompt hashes for each round to detect prompt changes instantly
+      let lastPromptHashes: Record<string, string> = {};
 
       const sendEvent = (data: object) => {
         if (!isActive) return;
@@ -72,14 +74,41 @@ export async function GET(
           const currentPlayerCount = session.players.length;
           const playerCountChanged = lastPlayerCount !== -1 && currentPlayerCount !== lastPlayerCount;
           
-          // Send update if session changed or player count changed
-          if (playerCountChanged || session.updatedAt > lastUpdated) {
+          // Check for prompt changes by comparing prompt hashes
+          let promptChanged = false;
+          const currentPromptHashes: Record<string, string> = {};
+          
+          // Check all rounds for prompt changes (not just current round)
+          session.rounds.forEach((round) => {
+            Object.entries(round.entries).forEach(([playerId, entry]) => {
+              // Create a simple hash of all prompts including status and progress
+              const promptString = JSON.stringify(entry.prompts) + entry.currentRoleIndex + entry.status;
+              const key = `${round.index}:${playerId}`;
+              currentPromptHashes[key] = promptString;
+              
+              // Check if this prompt has changed
+              if (lastPromptHashes[key] !== undefined && lastPromptHashes[key] !== promptString) {
+                promptChanged = true;
+              }
+              // Also detect new entries
+              if (lastPromptHashes[key] === undefined && entry.prompts && Object.values(entry.prompts).some((p) => p !== null)) {
+                promptChanged = true;
+              }
+            });
+          });
+          
+          // Send update if session changed, player count changed, or prompts changed
+          if (playerCountChanged || promptChanged || session.updatedAt > lastUpdated) {
             lastUpdated = session.updatedAt;
             lastPlayerCount = currentPlayerCount;
+            lastPromptHashes = currentPromptHashes;
             sendEvent({
               type: "session_update",
               session: serializeSession(session),
             });
+          } else {
+            // Update hashes even if no update sent (for next comparison)
+            lastPromptHashes = currentPromptHashes;
           }
         } catch (error) {
           console.error("Failed to check session", error);
@@ -87,19 +116,27 @@ export async function GET(
         }
       };
 
-      // Initial session send - set initial player count
+      // Initial session send - set initial player count and prompt hashes
       const initialSession = await sessionStore.getSession(sessionId);
       if (initialSession) {
         lastPlayerCount = initialSession.players.length;
+        // Initialize prompt hashes
+        initialSession.rounds.forEach((round) => {
+          Object.entries(round.entries).forEach(([playerId, entry]) => {
+            const promptString = JSON.stringify(entry.prompts) + entry.currentRoleIndex + entry.status;
+            const key = `${round.index}:${playerId}`;
+            lastPromptHashes[key] = promptString;
+          });
+        });
       }
       await checkSession();
 
-      // Poll every 20ms for changes (ultra fast updates)
+      // Poll every 10ms for changes (ultra fast updates for prompt detection)
       const interval = setInterval(() => {
         if (isActive) {
           void checkSession();
         }
-      }, 20);
+      }, 10);
 
       // Heartbeat every 30s
       const heartbeatInterval = setInterval(() => {

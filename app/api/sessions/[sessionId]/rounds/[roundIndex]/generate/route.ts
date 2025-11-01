@@ -80,8 +80,8 @@ export async function POST(
     });
 
     // Resize image to fit Redis limit (512KB per value) while keeping full image intact
-    // Target: 800px width portrait orientation (2:3 aspect ratio), max 400KB
-    const resizedImage = await resizeBase64Image(image, 400_000, 800, 85);
+    // Target: 1000px width portrait orientation (2:3 aspect ratio), max 450KB, quality 90
+    const resizedImage = await resizeBase64Image(image, 450_000, 1000, 90);
 
     const updated = await sessionStore.setPlayerResult(params.sessionId, roundIndex, playerId, {
       finalPrompt,

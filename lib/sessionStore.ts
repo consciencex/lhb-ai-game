@@ -221,9 +221,16 @@ export class SessionStore {
       throw new Error("All prompts already collected for this player.");
     }
 
+    // Simple: store prompt in the correct role slot
     entry.prompts[roleId] = prompt;
+    // Advance to next role (or mark as ready if all done)
     entry.currentRoleIndex += 1;
     entry.updatedAt = Date.now();
+    
+    // Ensure currentRoleIndex doesn't exceed array bounds
+    if (entry.currentRoleIndex > ROLE_ORDER.length) {
+      entry.currentRoleIndex = ROLE_ORDER.length;
+    }
     
     // Force update session timestamp immediately for faster SSE detection
     // Use a fresh timestamp to ensure it's always newer

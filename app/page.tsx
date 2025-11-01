@@ -159,6 +159,8 @@ function GameApp() {
   const [playerPromptSubmitting, setPlayerPromptSubmitting] = useState(false);
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<{ src: string; title?: string } | null>(null);
+  // Track last submission to prevent double submission
+  const lastSubmissionRef = useRef<{ roundIndex: number; roleIndex: number; timestamp: number } | null>(null);
 
   // Auto-open join screen when ?join=CODE
   useEffect(() => {
@@ -301,20 +303,58 @@ function GameApp() {
                   return prev;
                 }
                 
-                // Debug: Log to verify state is correct
-                if (entry.currentRoleIndex !== prev.session.rounds[roundIndex]?.entries[currentPlayerId]?.currentRoleIndex) {
-                  console.log("SSE update - Role changed:", {
-                    oldIndex: prev.session.rounds[roundIndex]?.entries[currentPlayerId]?.currentRoleIndex,
-                    newIndex: entry.currentRoleIndex,
-                    oldRole: prev.session.rounds[roundIndex]?.entries[currentPlayerId] 
-                      ? ROLE_ORDER[prev.session.rounds[roundIndex].entries[currentPlayerId].currentRoleIndex]
-                      : null,
-                    newRole: ROLE_ORDER[entry.currentRoleIndex],
-                    prompts: entry.prompts,
-                  });
+                // Get previous entry for comparison
+                const prevRound = prev.session.rounds[roundIndex];
+                const prevEntry = prevRound?.entries[currentPlayerId];
+                
+                // Only update if there's an actual change to avoid unnecessary re-renders
+                // and potential race conditions with fetch response
+                if (prevEntry) {
+                  const prevRoleIndex = prevEntry.currentRoleIndex;
+                  const newRoleIndex = entry.currentRoleIndex;
+                  
+                  // Check if we just submitted (within last 1 second) - ignore SSE during this time
+                  // to prevent race condition with fetch response
+                  const lastSubmission = lastSubmissionRef.current;
+                  const sseNow = Date.now();
+                  if (
+                    lastSubmission &&
+                    lastSubmission.roundIndex === roundIndex &&
+                    sseNow - lastSubmission.timestamp < 1000
+                  ) {
+                    // Just submitted, wait for fetch response - ignore SSE temporarily
+                    return prev;
+                  }
+                  
+                  // Only log if there's an unexpected change (silent for normal progression)
+                  if (prevRoleIndex !== newRoleIndex) {
+                    const oldRole = prevRoleIndex < ROLE_ORDER.length ? ROLE_ORDER[prevRoleIndex] : null;
+                    const newRole = newRoleIndex < ROLE_ORDER.length ? ROLE_ORDER[newRoleIndex] : null;
+                    
+                    // Only log if it's not a normal progression (+1)
+                    if (newRoleIndex !== prevRoleIndex + 1) {
+                      console.warn("Unexpected role change:", {
+                        oldIndex: prevRoleIndex,
+                        newIndex: newRoleIndex,
+                        oldRole,
+                        newRole,
+                      });
+                    }
+                  }
+                  
+                  // Simple: only update if our entry actually changed
+                  const entryChanged = 
+                    prevRoleIndex !== newRoleIndex || 
+                    prevEntry.status !== entry.status ||
+                    updatedSession.updatedAt > prev.session.updatedAt;
+                  
+                  if (!entryChanged) {
+                    // No change to our entry, skip update
+                    return prev;
+                  }
                 }
                 
-                // Update session
+                // Update session with SSE data
                 return { ...prev, session: updatedSession };
               });
             } else if (data.type === "session_not_found" || data.type === "forbidden") {
@@ -828,10 +868,13 @@ function GameApp() {
   }, [playerData, currentPlayerRoundIndex]);
 
   const playerCurrentRole: RoleId | null = useMemo(() => {
-    if (!playerEntry) return null;
-    return playerEntry.status === "collecting"
-      ? ROLE_ORDER[playerEntry.currentRoleIndex] ?? null
-      : null;
+    if (!playerEntry || playerEntry.status !== "collecting") return null;
+    // Simple check: if currentRoleIndex is valid (0-4), return that role
+    if (playerEntry.currentRoleIndex >= 0 && playerEntry.currentRoleIndex < ROLE_ORDER.length) {
+      return ROLE_ORDER[playerEntry.currentRoleIndex];
+    }
+    // If all prompts collected (currentRoleIndex >= 5), return null
+    return null;
   }, [playerEntry]);
 
   const playerGoalImage = useMemo(() => {
@@ -850,13 +893,34 @@ function GameApp() {
         return;
       }
 
+      // Prevent double submission for the same role
+      const currentRoleIndex = playerEntry.currentRoleIndex;
+      const lastSubmission = lastSubmissionRef.current;
+      const now = Date.now();
+      
+      if (
+        lastSubmission &&
+        lastSubmission.roundIndex === currentPlayerRoundIndex &&
+        lastSubmission.roleIndex === currentRoleIndex &&
+        now - lastSubmission.timestamp < 2000 // Prevent duplicate within 2 seconds
+      ) {
+        console.warn("Preventing duplicate submission for same role");
+        return;
+      }
+
       setPlayerPromptSubmitting(true);
       setPlayerError(null);
 
       // Clear prompt immediately for better UX
       const currentPrompt = trimmed;
-      const currentRoleIndex = playerEntry.currentRoleIndex;
       setPlayerPrompt("");
+      
+      // Record submission
+      lastSubmissionRef.current = {
+        roundIndex: currentPlayerRoundIndex,
+        roleIndex: currentRoleIndex,
+        timestamp: now,
+      };
 
       try {
         const response = await fetch(
@@ -876,34 +940,70 @@ function GameApp() {
         }
 
         // Update with server response - ensure we only update our own player data
+        // Use server response directly to avoid race conditions with SSE
         setPlayerData((prev) => {
           if (!prev || prev.playerId !== playerData.playerId) return prev;
           const updatedSession = payload.session;
+          
+          // Verify round exists
+          if (currentPlayerRoundIndex < 0 || currentPlayerRoundIndex >= updatedSession.rounds.length) {
+            console.warn("Invalid round index in server response");
+            return prev;
+          }
+          
           const round = updatedSession.rounds[currentPlayerRoundIndex];
           if (!round) {
             console.warn("Round not found in server response");
             return prev;
           }
+          
           const entry = round.entries[prev.playerId];
           if (!entry) {
             console.warn("Player entry not found in server response");
             return prev;
           }
           
-          // Debug: Log the state to verify correctness
-          console.log("Prompt submitted successfully:", {
-            submittedForRole: ROLE_ORDER[currentRoleIndex],
-            newCurrentRoleIndex: entry.currentRoleIndex,
-            newCurrentRole: ROLE_ORDER[entry.currentRoleIndex],
-            prompts: entry.prompts,
-          });
+          // Verify the submitted role is correct
+          const submittedRole = ROLE_ORDER[currentRoleIndex];
+          if (!entry.prompts[submittedRole] || entry.prompts[submittedRole] !== currentPrompt) {
+            console.error("Prompt mismatch - submitted role not saved correctly", {
+              submittedRole,
+              currentPrompt,
+              savedPrompt: entry.prompts[submittedRole],
+              prompts: entry.prompts,
+            });
+          }
           
-          // Update session with server response
+          // Simple verification - only log if there's an issue
+          const newRoleIndex = entry.currentRoleIndex;
+          const nextRole = newRoleIndex < ROLE_ORDER.length ? ROLE_ORDER[newRoleIndex] : null;
+          
+          // Verify the submitted role is correct
+          if (entry.prompts[submittedRole] !== currentPrompt) {
+            console.error("Prompt mismatch:", {
+              submittedRole,
+              expected: currentPrompt.substring(0, 30),
+              saved: entry.prompts[submittedRole]?.substring(0, 30),
+            });
+          }
+          
+          // Only log completion or errors
+          if (nextRole === null) {
+            console.log("All 5 prompts collected! Ready to generate.");
+          }
+          
+          // Update session with server response - trust server state completely
+          // Clear submission ref after successful update
+          lastSubmissionRef.current = null;
           return { ...prev, session: updatedSession };
         });
       } catch (error) {
         console.error(error);
         setPlayerError(error instanceof Error ? error.message : "เกิดข้อผิดพลาด");
+        // Restore prompt on error
+        setPlayerPrompt(currentPrompt);
+        // Clear submission ref on error
+        lastSubmissionRef.current = null;
         // SSE will eventually sync correct state
       } finally {
         setPlayerPromptSubmitting(false);

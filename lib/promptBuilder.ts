@@ -26,10 +26,13 @@ Stage 5 — Background & Environment:
 - Do not modify the subject from Stages 1–4; only blend lighting and shadows.
 
 Rendering Requirements:
-- Produce an ultra-realistic, photorealistic 8K full-body portrait in vertical/portrait orientation (9:16 aspect ratio or similar).
+- CRITICAL: The image MUST be in VERTICAL/PORTRAIT orientation ONLY (9:16 aspect ratio, height > width). NEVER create a horizontal/landscape image (width > height).
+- The image aspect ratio must be vertical: height must be greater than width (portrait format).
+- Produce an ultra-realistic, photorealistic 8K full-body portrait in portrait orientation.
 - Show the complete body from head to toe. Ensure the full figure is visible, not cut off at the torso or waist.
+- The subject must be standing or posed vertically to fit the portrait orientation.
 - Cinematic lighting, high dynamic range, physically accurate materials.
 - Never stylize the face or obscure it with artifacts. Additional props (glasses, hats, facial hair) must layer naturally without changing the original facial features.
-- The final image must show a complete, full-body figure standing or posed within the scene.`;
+- The final image must show a complete, full-body figure standing or posed within the scene in portrait orientation.`;
 }
 

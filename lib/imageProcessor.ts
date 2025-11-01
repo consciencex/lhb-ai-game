@@ -6,16 +6,16 @@
 /**
  * Resize and compress base64 image to fit within size limit
  * @param base64Image - Base64 encoded image string
- * @param maxSizeBytes - Maximum size in bytes (default 400KB for Redis safety)
- * @param targetWidth - Target width in pixels (default 800 for portrait)
- * @param quality - JPEG quality 1-100 (default 85)
+ * @param maxSizeBytes - Maximum size in bytes (default 450KB for Redis safety)
+ * @param targetWidth - Target width in pixels (default 1000 for portrait, higher resolution)
+ * @param quality - JPEG quality 1-100 (default 90 for better quality)
  * @returns Resized base64 image string
  */
 export async function resizeBase64Image(
   base64Image: string,
-  maxSizeBytes: number = 400_000, // 400KB for safety (Redis limit is 512KB)
-  targetWidth: number = 800,
-  quality: number = 85,
+  maxSizeBytes: number = 450_000, // 450KB for safety (Redis limit is 512KB)
+  targetWidth: number = 1000, // Increased from 800 to 1000 for higher resolution
+  quality: number = 90, // Increased from 85 to 90 for better quality
 ): Promise<string> {
   try {
     // Dynamic import sharp for serverless compatibility

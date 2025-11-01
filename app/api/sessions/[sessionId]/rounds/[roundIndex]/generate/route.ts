@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { generateCompositeImage } from "@/lib/gemini";
+import { resizeBase64Image } from "@/lib/imageProcessor";
 import { buildFiveStagePrompt } from "@/lib/promptBuilder";
 import { sessionStore } from "@/lib/sessionStore";
 import { serializeSession } from "@/lib/sessionSerializer";
@@ -78,12 +79,13 @@ export async function POST(
       goalImageMimeType: round.goalImageMimeType,
     });
 
-    // Limit image size by truncating if too large (roughly ~800KB base64)
-    const truncatedImage = image.length > 800_000 ? image.substring(0, 800_000) : image;
+    // Resize image to fit Redis limit (512KB per value) while keeping full image intact
+    // Target: 800px width portrait orientation (2:3 aspect ratio), max 400KB
+    const resizedImage = await resizeBase64Image(image, 400_000, 800, 85);
 
     const updated = await sessionStore.setPlayerResult(params.sessionId, roundIndex, playerId, {
       finalPrompt,
-      image: truncatedImage,
+      image: resizedImage,
     });
 
     return NextResponse.json({ session: updated ? serializeSession(updated) : null });

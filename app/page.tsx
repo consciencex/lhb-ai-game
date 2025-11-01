@@ -21,8 +21,6 @@ import {
 
 const MAX_PLAYERS = 6;
 const MAX_ROUNDS = 4;
-const COUNTDOWN_SECONDS = 30;
-const POLL_INTERVAL = 1000;
 const HOST_STORAGE_KEY = "dx-ai-host-session";
 const PLAYER_STORAGE_KEY = "dx-ai-player-session";
 
@@ -160,13 +158,6 @@ function GameApp() {
   const [playerPrompt, setPlayerPrompt] = useState("");
   const [playerPromptSubmitting, setPlayerPromptSubmitting] = useState(false);
   const [playerError, setPlayerError] = useState<string | null>(null);
-  const [secondsRemaining, setSecondsRemaining] = useState(COUNTDOWN_SECONDS);
-  const [timerActive, setTimerActive] = useState(false);
-  const playerTimerSignatureRef = useRef<{
-    roundIndex: number;
-    roleIndex: number;
-    status: PlayerStatus;
-  } | null>(null);
   const [imagePreview, setImagePreview] = useState<{ src: string; title?: string } | null>(null);
 
   // Auto-open join screen when ?join=CODE
@@ -177,82 +168,146 @@ function GameApp() {
     }
   }, [joinParam]);
 
-  // Poll session for host
+  // SSE connection for host
   useEffect(() => {
-    if (!hostData?.session.id) return;
+    if (!hostData?.session.id || !hostData?.hostSecret) return;
 
-    let active = true;
-    const fetchSession = async () => {
+    let eventSource: EventSource | null = null;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+    let isActive = true;
+
+    const connectSSE = () => {
+      if (!isActive || !hostData) return;
+
       try {
-        const response = await fetch(`/api/sessions/${hostData.session.id}`, {
-          cache: "no-store",
-        });
-        if (response.status === 404 || response.status === 403) {
-          if (typeof window !== "undefined") {
-            window.sessionStorage.removeItem(HOST_STORAGE_KEY);
+        const url = new URL(`/api/sessions/${hostData.session.id}/events`, window.location.origin);
+        url.searchParams.set("hostSecret", hostData.hostSecret);
+        eventSource = new EventSource(url.toString());
+
+        eventSource.onmessage = (event) => {
+          if (!isActive) return;
+          try {
+            const data = JSON.parse(event.data);
+            
+            if (data.type === "session_update" && data.session) {
+              setHostData((prev) => (prev ? { ...prev, session: data.session } : prev));
+            } else if (data.type === "session_not_found" || data.type === "forbidden") {
+              if (typeof window !== "undefined") {
+                window.sessionStorage.removeItem(HOST_STORAGE_KEY);
+              }
+              setHostData(null);
+              setHostMessages({ error: "ห้องนี้หมดอายุหรือถูกรีเซ็ตแล้ว" });
+              setView("landing");
+              eventSource?.close();
+            } else if (data.type === "error") {
+              console.error("SSE error:", data.message);
+            }
+          } catch (error) {
+            console.error("Failed to parse SSE message", error);
           }
-          if (active) {
-            setHostData(null);
-            setHostMessages({ error: "ห้องนี้หมดอายุหรือถูกรีเซ็ตแล้ว" });
-            setView("landing");
-          }
-          return;
-        }
-        if (!response.ok) return;
-        const payload = (await response.json()) as { session: SerializedSession };
-        if (active) {
-          setHostData((prev) => (prev ? { ...prev, session: payload.session } : prev));
-        }
+        };
+
+        eventSource.onerror = (error) => {
+          if (!isActive) return;
+          console.error("SSE connection error", error);
+          eventSource?.close();
+          // Reconnect after 2 seconds
+          reconnectTimeout = setTimeout(() => {
+            if (isActive) {
+              connectSSE();
+            }
+          }, 2000);
+        };
       } catch (error) {
-        console.error("Failed to poll session", error);
+        console.error("Failed to create SSE connection", error);
+        // Fallback to polling if SSE fails
+        reconnectTimeout = setTimeout(() => {
+          if (isActive) {
+            connectSSE();
+          }
+        }, 2000);
       }
     };
 
-    fetchSession();
-    const interval = setInterval(fetchSession, POLL_INTERVAL);
+    connectSSE();
+
     return () => {
-      active = false;
-      clearInterval(interval);
+      isActive = false;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      eventSource?.close();
     };
-  }, [hostData?.session.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hostData?.session.id, hostData?.hostSecret]);
 
+  // SSE connection for player
   useEffect(() => {
-    if (!playerData?.sessionId) return;
+    if (!playerData?.sessionId || !playerData?.playerId) return;
 
-    let active = true;
-    const fetchSession = async () => {
+    let eventSource: EventSource | null = null;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+    let isActive = true;
+
+    const connectSSE = () => {
+      if (!isActive || !playerData) return;
+
       try {
-        const response = await fetch(`/api/sessions/${playerData.sessionId}`, {
-          cache: "no-store",
-        });
-        if (response.status === 404 || response.status === 403) {
-          if (typeof window !== "undefined") {
-            window.sessionStorage.removeItem(PLAYER_STORAGE_KEY);
+        const url = new URL(`/api/sessions/${playerData.sessionId}/events`, window.location.origin);
+        url.searchParams.set("playerId", playerData.playerId);
+        eventSource = new EventSource(url.toString());
+
+        eventSource.onmessage = (event) => {
+          if (!isActive) return;
+          try {
+            const data = JSON.parse(event.data);
+            
+            if (data.type === "session_update" && data.session) {
+              setPlayerData((prev) => (prev ? { ...prev, session: data.session } : prev));
+            } else if (data.type === "session_not_found" || data.type === "forbidden") {
+              if (typeof window !== "undefined") {
+                window.sessionStorage.removeItem(PLAYER_STORAGE_KEY);
+              }
+              setPlayerData(null);
+              setView("landing");
+              setLandingError("ห้องนี้ถูกปิดหรือหมดอายุแล้ว กรุณาเข้าร่วมใหม่");
+              eventSource?.close();
+            } else if (data.type === "error") {
+              console.error("SSE error:", data.message);
+            }
+          } catch (error) {
+            console.error("Failed to parse SSE message", error);
           }
-          if (active) {
-            setPlayerData(null);
-            setView("landing");
-            setLandingError("ห้องนี้ถูกปิดหรือหมดอายุแล้ว กรุณาเข้าร่วมใหม่");
-          }
-          return;
-        }
-        if (!response.ok) return;
-        const payload = (await response.json()) as { session: SerializedSession };
-        if (active) {
-          setPlayerData((prev) => (prev ? { ...prev, session: payload.session } : prev));
-        }
+        };
+
+        eventSource.onerror = (error) => {
+          if (!isActive) return;
+          console.error("SSE connection error", error);
+          eventSource?.close();
+          // Reconnect after 2 seconds
+          reconnectTimeout = setTimeout(() => {
+            if (isActive) {
+              connectSSE();
+            }
+          }, 2000);
+        };
       } catch (error) {
-        console.error("Failed to poll player session", error);
+        console.error("Failed to create SSE connection", error);
+        reconnectTimeout = setTimeout(() => {
+          if (isActive) {
+            connectSSE();
+          }
+        }, 2000);
       }
     };
 
-    fetchSession();
-    const interval = setInterval(fetchSession, POLL_INTERVAL);
+    connectSSE();
+
     return () => {
-      active = false;
-      clearInterval(interval);
+      isActive = false;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      eventSource?.close();
     };
-  }, [playerData?.sessionId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerData?.sessionId, playerData?.playerId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -577,6 +632,58 @@ function GameApp() {
     }
   };
 
+  const handleBatchGenerate = async () => {
+    if (!hostData || !currentHostRound) return;
+    
+    // Find all ready players
+    const readyPlayers = hostData.session.players.filter(
+      (player) => currentHostRound?.entries[player.id]?.status === "ready" && !currentHostRound.entries[player.id]?.resultImage
+    );
+
+    if (readyPlayers.length === 0) {
+      setHostMessages({ error: "ไม่มีผู้เล่นที่พร้อมสร้างภาพ" });
+      return;
+    }
+
+    setGenerationLoading("batch");
+    setHostMessages({ success: `เริ่มสร้างภาพสำหรับ ${readyPlayers.length} ผู้เล่น...` });
+
+    // Trigger generation for all players in parallel
+    const generationPromises = readyPlayers.map((player) =>
+      fetch(`/api/sessions/${hostData.session.id}/rounds/${currentHostRoundIndex}/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-session-host-secret": hostData.hostSecret,
+        },
+        body: JSON.stringify({ playerId: player.id }),
+      }).catch((error) => {
+        console.error(`Failed to generate for ${player.name}`, error);
+        return { ok: false, error };
+      })
+    );
+
+    try {
+      const results = await Promise.all(generationPromises);
+      const successCount = results.filter((r) => r?.ok !== false).length;
+      
+      if (successCount === readyPlayers.length) {
+        setHostMessages({ success: `เริ่มสร้างภาพสำหรับ ${readyPlayers.length} ผู้เล่นสำเร็จแล้ว` });
+      } else if (successCount > 0) {
+        setHostMessages({ 
+          error: `สร้างภาพสำเร็จ ${successCount}/${readyPlayers.length} คน มีบางคนสร้างไม่สำเร็จ` 
+        });
+      } else {
+        setHostMessages({ error: "ไม่สามารถสร้างภาพได้" });
+      }
+    } catch (error) {
+      console.error(error);
+      setHostMessages({ error: error instanceof Error ? error.message : "เกิดข้อผิดพลาด" });
+    } finally {
+      setGenerationLoading(null);
+    }
+  };
+
   const handleAssignScore = async (roundIndex: number, playerId: string, score: number) => {
     if (!hostData) return;
     setScoringLoading(`${roundIndex}:${playerId}`);
@@ -628,13 +735,11 @@ function GameApp() {
     setHostMessages({});
     setPlayerPrompt("");
     setApiKeyInput("");
-    setSecondsRemaining(COUNTDOWN_SECONDS);
-    setTimerActive(false);
     if (typeof window !== "undefined") {
       window.sessionStorage.removeItem(HOST_STORAGE_KEY);
       window.sessionStorage.removeItem(PLAYER_STORAGE_KEY);
     }
-  setImagePreview(null);
+    setImagePreview(null);
     router.replace("/");
   };
 
@@ -679,36 +784,6 @@ function GameApp() {
     return getRoundGoalImage(currentPlayerRound);
   }, [currentPlayerRound]);
 
-  useEffect(() => {
-    if (!playerEntry || playerEntry.status !== "collecting") {
-      setTimerActive(false);
-      setSecondsRemaining(COUNTDOWN_SECONDS);
-      playerTimerSignatureRef.current = null;
-      return;
-    }
-
-    const signature = {
-      roundIndex: currentPlayerRoundIndex,
-      roleIndex: playerEntry.currentRoleIndex,
-      status: playerEntry.status,
-    };
-
-    const prev = playerTimerSignatureRef.current;
-    const hasChanged =
-      !prev ||
-      prev.roundIndex !== signature.roundIndex ||
-      prev.roleIndex !== signature.roleIndex ||
-      prev.status !== signature.status;
-
-    playerTimerSignatureRef.current = signature;
-
-    if (hasChanged) {
-      setPlayerError(null);
-      setSecondsRemaining(COUNTDOWN_SECONDS);
-      setTimerActive(true);
-    }
-  }, [playerEntry, currentPlayerRoundIndex]);
-
   const handleSubmitPrompt = useCallback(
     async () => {
       if (!playerData || playerEntry?.status !== "collecting" || currentPlayerRoundIndex < 0) return;
@@ -723,27 +798,53 @@ function GameApp() {
       setPlayerPromptSubmitting(true);
       setPlayerError(null);
 
+      // Optimistic update: immediately clear prompt and update local state
+      const currentPrompt = trimmed;
+      const currentRoleIndex = playerEntry.currentRoleIndex;
+      const roleId = ROLE_ORDER[currentRoleIndex];
+      
+      setPlayerPrompt("");
+      
+      // Optimistically update session state
+      setPlayerData((prev) => {
+        if (!prev) return prev;
+        const updated = { ...prev };
+        const round = updated.session.rounds[currentPlayerRoundIndex];
+        if (round && round.entries[prev.playerId]) {
+          const entry = { ...round.entries[prev.playerId] };
+          entry.prompts = { ...entry.prompts, [roleId!]: currentPrompt };
+          entry.currentRoleIndex = currentRoleIndex + 1;
+          if (entry.currentRoleIndex >= ROLE_ORDER.length) {
+            entry.status = "ready";
+          }
+          round.entries = { ...round.entries, [prev.playerId]: entry };
+        }
+        return updated;
+      });
+
       try {
         const response = await fetch(
           `/api/sessions/${playerData.sessionId}/rounds/${currentPlayerRoundIndex}/prompts`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ playerId: playerData.playerId, prompt: trimmed }),
+            body: JSON.stringify({ playerId: playerData.playerId, prompt: currentPrompt }),
           },
         );
 
         const payload = await response.json();
         if (!response.ok) {
+          // Revert optimistic update on error
+          setPlayerPrompt(currentPrompt);
           throw new Error(payload.error ?? "ส่ง prompt ไม่สำเร็จ");
         }
 
+        // Server will send correct state via SSE
         setPlayerData((prev) => (prev ? { ...prev, session: payload.session } : prev));
-        setPlayerPrompt("");
-        setSecondsRemaining(COUNTDOWN_SECONDS);
       } catch (error) {
         console.error(error);
         setPlayerError(error instanceof Error ? error.message : "เกิดข้อผิดพลาด");
+        // SSE will eventually sync correct state
       } finally {
         setPlayerPromptSubmitting(false);
       }
@@ -751,24 +852,11 @@ function GameApp() {
     [
       currentPlayerRoundIndex,
       playerData,
-      playerEntry?.status,
+      playerEntry,
       playerPrompt,
       playerPromptSubmitting,
     ],
   );
-
-  useEffect(() => {
-    if (!timerActive) return;
-    if (secondsRemaining <= 0) {
-      setTimerActive(false);
-      setPlayerError("หมดเวลาแล้ว กรุณากดส่งเพื่อไปส่วนต่อไป");
-      return;
-    }
-    const id = window.setTimeout(() => {
-      setSecondsRemaining((prev) => prev - 1);
-    }, 1000);
-    return () => window.clearTimeout(id);
-  }, [secondsRemaining, timerActive]);
 
   const renderLandingView = () => (
     <section className="grid gap-6 md:grid-cols-2">
@@ -1021,16 +1109,30 @@ function GameApp() {
                 <h3 className="text-lg font-semibold text-white">🎯 รอบที่ {currentHostRound.index}</h3>
                 <p className="text-sm text-gray-300">สถานะ: {renderRoundStatusBadge(currentHostRound.status)}</p>
               </div>
-              {getRoundGoalImage(currentHostRound) && (
-                <Image
-                  src={getRoundGoalImage(currentHostRound) as string}
-                  alt="Goal image"
-                  width={200}
-                  height={200}
-                  className="h-24 w-24 rounded-lg object-cover"
-                  unoptimized
-                />
-              )}
+              <div className="flex items-center gap-3">
+                {currentHostRound.status === "ready" && (
+                  <button
+                    type="button"
+                    onClick={handleBatchGenerate}
+                    className="btn-primary rounded-full px-4 py-2 text-sm font-semibold"
+                    disabled={generationLoading === "batch"}
+                  >
+                    {generationLoading === "batch" 
+                      ? "กำลังสร้าง..." 
+                      : `สร้างภาพทุกคน (${session.players.filter((p) => currentHostRound.entries[p.id]?.status === "ready" && !currentHostRound.entries[p.id]?.resultImage).length} คน)`}
+                  </button>
+                )}
+                {getRoundGoalImage(currentHostRound) && (
+                  <Image
+                    src={getRoundGoalImage(currentHostRound) as string}
+                    alt="Goal image"
+                    width={200}
+                    height={200}
+                    className="h-24 w-24 rounded-lg object-cover"
+                    unoptimized
+                  />
+                )}
+              </div>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -1332,27 +1434,13 @@ function GameApp() {
                 สถานะเกม: {getStatusLabel(session.status)} (รอบทั้งหมด {MAX_ROUNDS})
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={resetToLanding}
-                className="btn-secondary rounded-full px-4 py-2 text-sm"
-              >
-                ออกจากห้อง
-              </button>
-              <button
-                type="button"
-                className="btn-secondary rounded-full px-4 py-2 text-sm"
-                onClick={() => {
-                  setSecondsRemaining(COUNTDOWN_SECONDS);
-                  setPlayerPrompt("");
-                  playerTimerSignatureRef.current = null;
-                  setTimerActive(true);
-                }}
-              >
-                รีเฟรชตัวจับเวลา
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={resetToLanding}
+              className="btn-secondary rounded-full px-4 py-2 text-sm"
+            >
+              ออกจากห้อง
+            </button>
           </div>
         </div>
 
@@ -1377,14 +1465,9 @@ function GameApp() {
 
             {playerEntry?.status === "collecting" && playerCurrentRole && (
               <div className="rounded-xl border border-violet-500/40 bg-violet-500/10 p-6">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-white">ถึงคิวของคุณสำหรับ {ROLE_LABELS[playerCurrentRole]}</p>
-                    <p className="text-xs text-gray-300">กรอกคำอธิบายให้ชัดเจนที่สุดภายใน {COUNTDOWN_SECONDS} วินาที</p>
-                  </div>
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-black/60 text-2xl font-bold text-amber-300">
-                    {secondsRemaining}
-                  </div>
+                <div>
+                  <p className="text-sm font-semibold text-white">ถึงคิวของคุณสำหรับ {ROLE_LABELS[playerCurrentRole]}</p>
+                  <p className="text-xs text-gray-300">กรอกคำอธิบายให้ชัดเจนที่สุด</p>
                 </div>
                 <ul className="mt-3 space-y-1 text-xs text-violet-200">
                   {ROLE_METADATA[playerCurrentRole].guidelines.map((item) => (
